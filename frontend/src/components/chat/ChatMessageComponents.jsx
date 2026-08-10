@@ -355,28 +355,29 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
 
 export function TicketConfirmationCard({ ticket_number, event_title, price_paid, invoice_number, qr_code_url, date_str, location }) {
   return (
-    <div style={{
-      background: 'linear-gradient(145deg, rgba(6, 78, 59, 0.4), rgba(15, 23, 42, 0.95))',
-      border: '1px solid rgba(16, 185, 129, 0.5)',
-      borderRadius: '16px',
-      padding: '16px',
-      marginTop: '10px',
-      boxShadow: '0 8px 24px rgba(16, 185, 129, 0.2)'
+    <div className="ticket-stub" style={{
+      padding: '18px',
+      marginTop: '12px',
+      animation: 'ticketStamp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(16, 185, 129, 0.2)', paddingBottom: '10px', marginBottom: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <CheckCircle size={18} color="#10B981" />
-          <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#34D399', letterSpacing: '0.5px' }}>BOOKING CONFIRMED</span>
+          <CheckCircle size={18} color="var(--gold)" />
+          <span className="font-display-title" style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '0.05em' }}>
+            BOOKING CONFIRMED
+          </span>
         </div>
-        <span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.2)', color: '#6EE7B7', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+        <span className="badge badge-gold font-mono-data">
           {ticket_number}
         </span>
       </div>
 
-      <h4 style={{ color: '#F8FAFC', fontSize: '1rem', fontWeight: 700, margin: '0 0 6px 0' }}>{event_title}</h4>
+      <h4 className="font-display-title" style={{ color: 'var(--paper)', fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0' }}>
+        {event_title}
+      </h4>
       
       {(date_str || location) && (
-        <div style={{ fontSize: '0.78rem', color: '#94A3B8', marginBottom: '12px', display: 'flex', gap: '12px' }}>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px', display: 'flex', gap: '12px' }}>
           {date_str && <span>📅 {date_str}</span>}
           {location && <span>📍 {location}</span>}
         </div>
@@ -384,20 +385,24 @@ export function TicketConfirmationCard({ ticket_number, event_title, price_paid,
 
       {/* QR Code Pass Display */}
       {qr_code_url && (
-        <div style={{ background: 'white', padding: '10px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '12px 0' }}>
-          <img src={qr_code_url} alt="Ticket QR Pass" style={{ width: '130px', height: '130px' }} />
-          <span style={{ fontSize: '0.65rem', color: '#475569', marginTop: '4px', fontWeight: 600 }}>HMAC-SHA256 SIGNED QR PASS</span>
+        <div style={{ background: 'white', padding: '12px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '12px 0', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+          <img src={qr_code_url} alt={`QR Pass for ${ticket_number}`} style={{ width: '140px', height: '140px' }} />
+          <span className="font-mono-data" style={{ fontSize: '0.65rem', color: '#151316', marginTop: '6px', fontWeight: 800, letterSpacing: '0.5px' }}>
+            HMAC-SHA256 SIGNED QR PASS
+          </span>
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#A78BFA', marginTop: '8px' }}>
-        <span>Paid: ₹{price_paid ? price_paid.toFixed(0) : '499'}</span>
+      <div className="ticket-seam" />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--paper)' }}>
+        <span>Paid: <strong className="font-mono-data" style={{ color: 'var(--gold)' }}>₹{price_paid ? price_paid.toFixed(0) : '499'}</strong></span>
         {invoice_number && (
           <a
-            href={`/api/v1/payments/invoices/${invoice_number}`}
+            href={`/api/v1/invoices/${invoice_number}`}
             target="_blank"
             rel="noreferrer"
-            style={{ color: '#60A5FA', textDecoration: 'underline', fontWeight: 600 }}
+            style={{ color: 'var(--gold)', textDecoration: 'underline', fontWeight: 600 }}
           >
             Download Invoice PDF
           </a>
@@ -406,6 +411,7 @@ export function TicketConfirmationCard({ ticket_number, event_title, price_paid,
     </div>
   );
 }
+
 
 export function QuickReplyButtons({ quick_replies, onSelect }) {
   if (!quick_replies || quick_replies.length === 0) return null;
