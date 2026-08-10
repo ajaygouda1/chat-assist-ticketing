@@ -9,17 +9,22 @@ from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.ticket import Event, Ticket, ScanLog
 from app.models.payment import Payment
+from app.models.user import User
 from app.models.ml_models import FraudFlag
 from app.schemas.schemas import (
     EventCreate, EventUpdate, EventResponse, BookingCreate, BookingResponse,
-    VerifyRequest, CheckInRequest
+    VerifyRequest, CheckInRequest, TransferRequest
 )
 from app.ml.fraud_detector import fraud_detector
+
 from app.services.gst_service import generate_gst_invoice_pdf
 from app.services.qr_service import generate_ticket_qr_base64, verify_ticket_token, sign_ticket_token
-from app.core.authorization import require_event_owner
+from app.services.wallet_service import generate_google_wallet_link, generate_apple_wallet_link
+from app.jobs.reservation_expiry import on_reservation_expired
+from app.core.authorization import require_event_owner, get_current_user
 
 router = APIRouter()
+
 
 @router.get("/events", response_model=List[EventResponse])
 def get_events(status: Optional[str] = Query("PUBLISHED"), db: Session = Depends(get_db)):
@@ -322,6 +327,9 @@ def verify_ticket(
         if decoded and "ticket_id" in decoded:
             try:
                 ticket = db.query(Ticket).filter(Ticket.id == int(decoded["ticket_id"])).first()
+                # §57d token re-signing check: If ticket was re-signed, old token fails
+                if ticket and ticket.qr_code_path and ticket.qr_code_path != token_clean:
+                    ticket = None
             except (ValueError, TypeError):
                 ticket = None
         
@@ -331,6 +339,7 @@ def verify_ticket(
                 (Ticket.ticket_number == token_clean.upper()) |
                 (Ticket.qr_code_path == token_clean)
             ).first()
+
 
     elif number_clean:
         ticket = db.query(Ticket).filter(Ticket.ticket_number == number_clean.upper()).first()
@@ -475,6 +484,117 @@ def check_in_ticket(
             "status": "CHECKED_IN"
         }
     }
+
+@router.get("/tickets/{ticket_id}/wallet")
+def get_ticket_wallet_links(ticket_id: int, db: Session = Depends(get_db)):
+    """
+    Wallet Passes:
+    Generates Google Wallet save link and Apple Wallet pass link for a given ticket.
+    """
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    event = db.query(Event).filter(Event.id == ticket.event_id).first()
+    payment = db.query(Payment).filter(Payment.ticket_id == ticket.id).first()
+    payment_id = payment.payment_id if payment else "pay_sample"
+    token, _ = generate_ticket_qr_base64(str(ticket.id), payment_id, str(event.id if event else 1))
+
+    ticket_data = {
+        "id": ticket.id,
+        "ticket_id": ticket.id,
+        "ticket_number": ticket.ticket_number,
+        "event_title": event.title if event else "ChatAssist Live Event",
+        "user_name": "Valued Attendee",
+        "ticket_token": token,
+        "qr_token": token
+    }
+
+    g_wallet_url = generate_google_wallet_link(ticket_data)
+    a_wallet_url = generate_apple_wallet_link(ticket_data)
+
+    return {
+        "ticket_id": ticket.id,
+        "google_wallet_url": g_wallet_url,
+        "apple_wallet_url": a_wallet_url
+    }
+
+
+@router.post("/tickets/{ticket_id}/transfer")
+def transfer_ticket(
+    ticket_id: int,
+    payload: TransferRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Ticket Transfer / Gifting:
+    Transfers ticket ownership to a new recipient email and re-signs the HMAC token
+    so that any old QR codes or screenshots immediately fail verification.
+    """
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    status_upper = (ticket.status or "").upper()
+    if status_upper not in ["CONFIRMED", "ACTIVE"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only active, confirmed tickets can be transferred"
+        )
+
+    # Check recipient user
+    recipient_email = payload.recipient_email.strip().lower()
+    new_owner = db.query(User).filter(User.email == recipient_email).first()
+    if not new_owner:
+        # Create recipient user if not already present
+        new_owner = User(
+            email=recipient_email,
+            name=recipient_email.split("@")[0].title(),
+            hashed_password="social_transfer_dummy",
+            role="customer"
+        )
+
+        db.add(new_owner)
+        db.flush()
+
+    payment = db.query(Payment).filter(Payment.ticket_id == ticket.id).first()
+    payment_id = payment.payment_id if payment else f"pay_transfer_{uuid.uuid4().hex[:6]}"
+
+    # Re-sign HMAC token: previous QR code screenshot becomes invalid
+    new_qr_token, new_qr_b64 = generate_ticket_qr_base64(str(ticket.id), payment_id, str(ticket.event_id))
+    
+    ticket.user_id = new_owner.id
+    ticket.qr_code_path = new_qr_token
+    ticket.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(ticket)
+
+    return {
+        "success": True,
+        "message": f"Ticket #{ticket.ticket_number} successfully transferred to {recipient_email}. Previous QR code is invalidated.",
+        "ticket": {
+            "id": ticket.id,
+            "ticket_number": ticket.ticket_number,
+            "status": ticket.status,
+            "new_owner_email": new_owner.email,
+            "qr_token": new_qr_token,
+            "qr_code_url": new_qr_b64
+        }
+    }
+
+
+@router.post("/bookings/{booking_id}/expire")
+def expire_abandoned_booking(booking_id: int, db: Session = Depends(get_db)):
+    """
+    Abandoned Booking Recovery endpoint:
+    Triggers reservation expiration, releases reserved tickets back to available inventory, and schedules recovery nudge.
+    """
+    res = on_reservation_expired(booking_id, db)
+    return res
+
+
 
 
 

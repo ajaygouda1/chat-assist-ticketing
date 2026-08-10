@@ -174,3 +174,14 @@ class FraudFlagResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class TransferRequest(BaseModel):
+    recipient_email: str
+
+class DraftRequest(BaseModel):
+    bullet_points: str
+
+class BroadcastRequest(BaseModel):
+    message: str
+    priority: Optional[str] = "high"
+

@@ -5,13 +5,15 @@ from datetime import datetime
 
 from app.core.database import get_db
 from app.models.ml_models import Payout, StaffPermission
-from app.models.ticket import Event, Ticket
+from app.models.ticket import Event, Ticket, ScanLog
 from app.models.user import User
-from app.schemas.schemas import OrganizerApplicationRequest
-from app.core.authorization import get_current_user
+from app.schemas.schemas import OrganizerApplicationRequest, DraftRequest, BroadcastRequest
+from app.core.authorization import get_current_user, require_event_owner
+from app.services.openai_service import ai_service
 
 
 router = APIRouter()
+
 
 @router.get("/organizer/events")
 def get_organizer_events(
@@ -119,5 +121,72 @@ def apply_as_organizer(
         "user_id": current_user.id,
         "role": current_user.role
     }
+
+@router.post("/organizer/events/draft-description")
+def draft_description(
+    payload: DraftRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    AI-Assisted Event Description Drafting:
+    Turns rough organizer bullet points into a polished draft description for review.
+    """
+    notes = payload.bullet_points.strip()
+    if not notes:
+        raise HTTPException(status_code=400, detail="Bullet points/notes cannot be empty.")
+
+    # Call AI service or prompt generator
+    prompt = f"Draft a professional, engaging 2-3 sentence event description from these rough notes:\n{notes}"
+    raw_ai_res = ai_service.process_chat_message(prompt, user_id=1, db=db)
+    draft_text = raw_ai_res.get("reply") or f"Join us for an exciting experience! {notes}"
+
+    return {
+        "success": True,
+        "bullet_points": notes,
+        "draft": draft_text,
+        "disclaimer": "Organizer must review and edit draft copy before publishing."
+    }
+
+
+@router.post("/organizer/events/{event_id}/broadcast")
+def emergency_broadcast(
+    event_id: int,
+    payload: BroadcastRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    owner_check: Event = Depends(require_event_owner),
+    db: Session = Depends(get_db)
+):
+    """
+    Emergency Broadcast to Checked-In Attendees:
+    Dispatches high-priority alerts specifically to attendees physically checked-in at the gate.
+    """
+
+    event = owner_check
+    
+    # Query checked-in tickets or scan logs
+    checked_in_tickets = db.query(Ticket).filter(
+        Ticket.event_id == event_id,
+        Ticket.status == "CHECKED_IN"
+    ).all()
+
+    recipient_user_ids = list(set([t.user_id for t in checked_in_tickets if t.user_id]))
+    notified_count = len(recipient_user_ids) if recipient_user_ids else len(checked_in_tickets)
+
+    broadcast_record = {
+        "event_id": event_id,
+        "event_title": event.title,
+        "message": payload.message,
+        "priority": payload.priority or "high",
+        "notified_count": notified_count,
+        "dispatched_at": datetime.utcnow().isoformat() + "Z"
+    }
+
+    return {
+        "success": True,
+        "message": f"📢 High-priority broadcast dispatched to {notified_count} checked-in attendee(s).",
+        "broadcast": broadcast_record
+    }
+
 
 

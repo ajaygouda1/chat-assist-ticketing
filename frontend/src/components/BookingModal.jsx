@@ -189,23 +189,39 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <a 
-                href={`/api/v1/invoices/${bookingResult.invoice_number}`} 
+                href={`https://pay.google.com/gp/v/save/chatassist_ticket_${bookingResult.ticket_id}`}
                 target="_blank" 
                 rel="noreferrer" 
-                className="gradient-btn"
-                style={{ flex: 1, textDecoration: 'none', justifyContent: 'center', padding: '12px', fontSize: '0.875rem' }}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                  background: 'linear-gradient(135deg, #1a73e8 0%, #00e676 100%)',
+                  color: 'white', padding: '12px', borderRadius: '10px', fontWeight: 700,
+                  fontSize: '0.875rem', textDecoration: 'none', boxShadow: '0 4px 12px rgba(26, 115, 232, 0.3)'
+                }}
               >
-                <Download size={16} /> GST Tax Invoice (PDF)
+                <Wallet size={16} /> Add to Google Wallet Pass
               </a>
 
-              <button 
-                onClick={onClose} 
-                style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-glass)', color: 'white', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}
-              >
-                Close
-              </button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <a 
+                  href={`/api/v1/invoices/${bookingResult.invoice_number}`} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="gradient-btn"
+                  style={{ flex: 1, textDecoration: 'none', justifyContent: 'center', padding: '12px', fontSize: '0.875rem' }}
+                >
+                  <Download size={16} /> GST Tax Invoice
+                </a>
+
+                <button 
+                  onClick={onClose} 
+                  style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-glass)', color: 'white', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -213,3 +229,4 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
     </div>
   );
 }
+

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit3, Copy, XCircle, Users, QrCode, Calendar, MapPin, DollarSign, RefreshCw, Eye, AlertCircle, Lock } from 'lucide-react';
+import { Plus, Edit3, Copy, XCircle, Users, QrCode, Calendar, MapPin, DollarSign, RefreshCw, Eye, AlertCircle, Lock, Radio } from 'lucide-react';
 import axios from 'axios';
 import EventWizard from './EventWizard';
 import { useAuth } from '../../context/AuthContext';
+
 
 
 export default function MyEvents({ onNavigateToScanner }) {
@@ -17,6 +18,31 @@ export default function MyEvents({ onNavigateToScanner }) {
   // Bookings Inspection Modal
   const [inspectBookingsEvent, setInspectBookingsEvent] = useState(null);
   const [eventBookings, setEventBookings] = useState([]);
+
+  // Section 57f Emergency Broadcast state
+  const [broadcastEvent, setBroadcastEvent] = useState(null);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastPriority, setBroadcastPriority] = useState('high');
+  const [broadcastStatus, setBroadcastStatus] = useState('');
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastMessage.trim() || !broadcastEvent) return;
+    setBroadcastLoading(true);
+    setBroadcastStatus('');
+    try {
+      const res = await axios.post(`/api/v1/organizer/events/${broadcastEvent.id}/broadcast`, {
+        message: broadcastMessage,
+        priority: broadcastPriority
+      });
+      setBroadcastStatus(res.data.message || 'Broadcast dispatched successfully!');
+    } catch (err) {
+      setBroadcastStatus(err.response?.data?.detail || 'Failed to dispatch broadcast.');
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
 
   useEffect(() => {
     fetchOrganizerEvents();
@@ -247,6 +273,14 @@ export default function MyEvents({ onNavigateToScanner }) {
                           <Users size={14} /> Bookings
                         </button>
 
+                        <button
+                          onClick={() => { setBroadcastEvent(ev); setBroadcastStatus(''); setBroadcastMessage(''); }}
+                          title="Emergency Broadcast to Checked-in Attendees (§57f)"
+                          style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#F87171', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Radio size={14} /> Broadcast
+                        </button>
+
                         {onNavigateToScanner && (
                           <button
                             onClick={() => onNavigateToScanner(ev.id)}
@@ -256,6 +290,7 @@ export default function MyEvents({ onNavigateToScanner }) {
                             <QrCode size={14} /> Scan
                           </button>
                         )}
+
 
                         {canModify && ev.status !== 'CANCELLED' && (
                           <button
@@ -328,6 +363,72 @@ export default function MyEvents({ onNavigateToScanner }) {
         </div>
       )}
 
+      {/* Section 57f Emergency Broadcast Modal */}
+
+      {broadcastEvent && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '540px', padding: '24px', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Radio size={20} color="#F87171" />
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'white', margin: 0 }}>Emergency Broadcast (§57f)</h3>
+              </div>
+              <button onClick={() => setBroadcastEvent(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
+            </div>
+
+            <p style={{ fontSize: '0.8rem', color: '#94A3B8', marginBottom: '14px' }}>
+              Send high-priority urgent announcements to attendees physically checked-in at <strong>{broadcastEvent.title}</strong>.
+            </p>
+
+            {broadcastStatus && (
+              <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', color: '#34D399', padding: '10px', borderRadius: '8px', fontSize: '0.8rem', marginBottom: '14px', fontWeight: 600 }}>
+                {broadcastStatus}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'white', display: 'block', marginBottom: '4px' }}>Priority Level</label>
+              <select
+                value={broadcastPriority}
+                onChange={(e) => setBroadcastPriority(e.target.value)}
+                style={{ width: '100%', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '8px', color: 'white', fontSize: '0.85rem' }}
+              >
+                <option value="high">🚨 High Priority (Instant Gate Push Alert)</option>
+                <option value="urgent">⚡ Critical Weather / Venue Security Alert</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '18px' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'white', display: 'block', marginBottom: '4px' }}>Alert Message *</label>
+              <textarea
+                rows={4}
+                placeholder="e.g. Weather delay: Main stage schedule pushed by 30 mins. Please stay covered in Hall B."
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                style={{ width: '100%', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '10px', color: 'white', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setBroadcastEvent(null)}
+                style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#94A3B8', borderRadius: '8px', padding: '8px 16px', fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+              <button
+                onClick={handleSendBroadcast}
+                disabled={broadcastLoading}
+                style={{ background: 'linear-gradient(135deg, #EF4444, #DC2626)', border: 'none', color: 'white', borderRadius: '8px', padding: '8px 18px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {broadcastLoading ? 'Dispatching...' : '📢 Dispatch Broadcast Alert'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

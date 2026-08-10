@@ -7,6 +7,29 @@ export default function EventWizard({ eventIdToEdit = null, onClose, onSaveSucce
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSavedTime, setDraftSavedTime] = useState(null);
   const [publishErrors, setPublishErrors] = useState([]);
+
+  // Section 57e AI Description Drafting state
+  const [showAiDraftModal, setShowAiDraftModal] = useState(false);
+  const [aiNotes, setAiNotes] = useState('');
+  const [aiDraftLoading, setAiDraftLoading] = useState(false);
+
+  const handleAiDraft = async () => {
+    if (!aiNotes.trim()) return;
+    setAiDraftLoading(true);
+    try {
+      const res = await axios.post('/api/v1/organizer/events/draft-description', { bullet_points: aiNotes });
+      if (res.data && res.data.draft) {
+        handleChange('description', res.data.draft);
+        setShowAiDraftModal(false);
+        setAiNotes('');
+      }
+    } catch (err) {
+      console.error("AI draft error:", err);
+    } finally {
+      setAiDraftLoading(false);
+    }
+  };
+
   const [eventId, setEventId] = useState(eventIdToEdit);
 
   const [formData, setFormData] = useState({
@@ -266,7 +289,56 @@ export default function EventWizard({ eventIdToEdit = null, onClose, onSaveSucce
               </div>
 
               <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'white', display: 'block', marginBottom: '6px' }}>Event Description *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'white' }}>Event Description *</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiDraftModal(!showAiDraftModal)}
+                    style={{
+                      background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+                      border: 'none', color: 'white', padding: '4px 10px', borderRadius: '8px',
+                      fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                    }}
+                  >
+                    ✨ Draft with AI
+                  </button>
+                </div>
+
+                {showAiDraftModal && (
+                  <div style={{ background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(139, 92, 246, 0.5)', padding: '12px', borderRadius: '10px', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#C4B5FD', display: 'block', marginBottom: '4px' }}>
+                      AI Copywriter Assistant (§57e)
+                    </span>
+                    <p style={{ fontSize: '0.7rem', color: '#94A3B8', margin: '0 0 8px 0' }}>
+                      Enter rough bullet points or key event highlights. AI will convert them into draft copy for your review.
+                    </p>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. 2-day AI conference in Bengaluru, 10 keynote speakers, hands-on LLM hackathon..."
+                      value={aiNotes}
+                      onChange={(e) => setAiNotes(e.target.value)}
+                      style={{ width: '100%', background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '6px', padding: '8px', color: 'white', fontSize: '0.8rem', marginBottom: '8px' }}
+                    />
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowAiDraftModal(false)}
+                        style={{ background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.2)', color: '#94A3B8', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAiDraft}
+                        disabled={aiDraftLoading}
+                        style={{ background: 'linear-gradient(135deg, #10B981, #059669)', border: 'none', color: 'white', borderRadius: '6px', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        {aiDraftLoading ? 'Drafting...' : 'Generate Description'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   rows={5}
                   placeholder="Describe your event agenda, keynote speakers, session topics, target audience, and inclusions..."
@@ -277,6 +349,7 @@ export default function EventWizard({ eventIdToEdit = null, onClose, onSaveSucce
               </div>
             </div>
           )}
+
 
           {/* STEP 2: Date & Location */}
           {currentStep === 2 && (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Ticket, ShieldCheck, Calendar, MapPin, CheckCircle, CreditCard, Sparkles, AlertCircle, ArrowRight, RefreshCw } from 'lucide-react';
+import { Ticket, ShieldCheck, Calendar, MapPin, CheckCircle, CreditCard, Sparkles, AlertCircle, ArrowRight, RefreshCw, Wallet, Send } from 'lucide-react';
 import axios from 'axios';
+
 
 export function EventCard({ id, title, category, date_str, location, price, available_tickets, image_url, ticket_types, onSelect }) {
   return (
@@ -353,7 +354,29 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
   );
 }
 
-export function TicketConfirmationCard({ ticket_number, event_title, price_paid, invoice_number, qr_code_url, date_str, location }) {
+export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, price_paid, invoice_number, qr_code_url, date_str, location }) {
+
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [transferMsg, setTransferMsg] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
+
+  const handleTransfer = async () => {
+    if (!recipientEmail) return;
+    setTransferLoading(true);
+    setTransferMsg('');
+    try {
+      const res = await axios.post(`/api/v1/tickets/${ticket_id || 1}/transfer`, {
+        recipient_email: recipientEmail
+      });
+      setTransferMsg(res.data.message || 'Ticket transferred successfully!');
+    } catch (err) {
+      setTransferMsg(err.response?.data?.detail || 'Failed to transfer ticket.');
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
   return (
     <div className="ticket-stub" style={{
       padding: '18px',
@@ -393,6 +416,79 @@ export function TicketConfirmationCard({ ticket_number, event_title, price_paid,
         </div>
       )}
 
+      {/* Section 57a & 57d Action Buttons */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <a 
+          href={`https://pay.google.com/gp/v/save/chatassist_ticket_${ticket_id || ticket_number}`}
+          target="_blank" 
+          rel="noreferrer" 
+          style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            background: 'linear-gradient(135deg, #1a73e8 0%, #00e676 100%)',
+            color: 'white', padding: '8px 12px', borderRadius: '8px', fontWeight: 700,
+            fontSize: '0.75rem', textDecoration: 'none', boxShadow: '0 2px 8px rgba(26, 115, 232, 0.3)'
+          }}
+        >
+          <Wallet size={14} /> Save to Google Wallet
+        </a>
+
+        <button
+          onClick={() => setShowTransfer(!showTransfer)}
+          style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            background: 'rgba(139, 92, 246, 0.25)',
+            border: '1px solid rgba(139, 92, 246, 0.5)',
+            color: '#C4B5FD', padding: '8px 12px', borderRadius: '8px', fontWeight: 700,
+            fontSize: '0.75rem', cursor: 'pointer'
+          }}
+        >
+          <Send size={14} /> Transfer Ticket
+        </button>
+      </div>
+
+      {/* Section 57d Transfer Ticket Drawer/Modal */}
+      {showTransfer && (
+        <div style={{ background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(139, 92, 246, 0.4)', padding: '12px', borderRadius: '10px', marginBottom: '12px' }}>
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'white', display: 'block', marginBottom: '6px' }}>
+            🎁 Gift / Transfer Ticket to Friend
+          </span>
+          <p style={{ fontSize: '0.7rem', color: '#94A3B8', margin: '0 0 8px 0' }}>
+            Enter recipient's email. Note: Re-signs HMAC token — previous QR code screenshot will immediately be invalidated (§57d).
+          </p>
+
+          {transferMsg && (
+            <div style={{ fontSize: '0.75rem', color: transferMsg.includes('successfully') ? '#34D399' : '#FCA5A5', marginBottom: '8px', fontWeight: 600 }}>
+              {transferMsg}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input
+              type="email"
+              placeholder="friend@example.com"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              style={{
+                flex: 1, background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: 'white', borderRadius: '6px', padding: '6px 10px', fontSize: '0.78rem'
+              }}
+            />
+            <button
+              onClick={handleTransfer}
+              disabled={transferLoading}
+              style={{
+                background: 'linear-gradient(135deg, #8B5CF6, #6366F1)', border: 'none',
+                color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer'
+              }}
+            >
+              {transferLoading ? 'Transferring...' : 'Send Transfer'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="ticket-seam" />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--paper)' }}>
@@ -411,6 +507,7 @@ export function TicketConfirmationCard({ ticket_number, event_title, price_paid,
     </div>
   );
 }
+
 
 
 export function QuickReplyButtons({ quick_replies, onSelect }) {
