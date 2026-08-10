@@ -6,8 +6,10 @@ import { useAuth } from '../../context/AuthContext';
 
 
 export default function MyEvents({ onNavigateToScanner }) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('ALL'); // DRAFT, PUBLISHED, PAST, CANCELLED, ALL
   const [events, setEvents] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState(null);
