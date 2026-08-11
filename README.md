@@ -39,7 +39,7 @@ ChatAssist is a production-ready, full-stack event ticketing platform with conve
 ### 2. Backend Setup
 ```bash
 # Navigate to project root
-cd c:/Users/ajay/OneDrive/Documents/chat-assist-ticketing
+cd chat-assist-ticketing
 
 # Install Python dependencies
 pip install -r backend/requirements.txt
@@ -56,7 +56,7 @@ API Documentation will be accessible at: `http://127.0.0.1:8000/docs`
 ### 3. Frontend Setup
 ```bash
 # In a new terminal, navigate to frontend
-cd c:/Users/ajay/OneDrive/Documents/chat-assist-ticketing/frontend
+cd frontend
 
 # Install dependencies
 npm install
@@ -64,7 +64,7 @@ npm install
 # Start Vite React development server
 npm run dev
 ```
-Open `http://localhost:3000` in your browser.
+Open `http://localhost:5173` in your browser.
 
 ---
 
