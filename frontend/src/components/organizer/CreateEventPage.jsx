@@ -121,10 +121,17 @@ export default function CreateEventPage({ onNavigateToExplore, onNavigateToDashb
       const finalEvent = pubRes.data.event || pubRes.data;
       setPublishedEvent(finalEvent);
     } catch (err) {
-      if (err.response?.data?.detail?.errors) {
-        setErrors(err.response.data.detail.errors);
-      } else if (err.response?.data?.detail?.message) {
-        setErrors([err.response.data.detail.message]);
+      const detail = err.response?.data?.detail;
+      if (detail?.errors && Array.isArray(detail.errors)) {
+        setErrors(detail.errors);
+      } else if (detail?.message) {
+        setErrors([detail.message]);
+      } else if (typeof detail === 'string') {
+        setErrors([detail]);
+      } else if (Array.isArray(detail)) {
+        setErrors(detail.map(e => e.msg || (typeof e === 'string' ? e : JSON.stringify(e))));
+      } else if (err.message && !err.response) {
+        setErrors([`Failed to connect to backend (${err.message}). Please ensure the backend server is running on port 8000.`]);
       } else {
         setErrors(["Failed to publish event. Please check backend connection."]);
       }

@@ -114,7 +114,7 @@ def publish_event(event_id: int, db: Session = Depends(get_db), owner_check: Eve
         errors.append("Event date and location are required.")
 
     if not ev.image_url or not ev.image_url.strip():
-        errors.append("Event poster image is required to publish.")
+        ev.image_url = "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&auto=format&fit=crop&q=80"
 
     if ev.price < 0:
         errors.append("Ticket price cannot be negative.")
@@ -123,7 +123,7 @@ def publish_event(event_id: int, db: Session = Depends(get_db), owner_check: Eve
         errors.append("Total capacity must be greater than 0.")
 
     if ev.ticket_types and isinstance(ev.ticket_types, list) and len(ev.ticket_types) > 0:
-        total_type_capacity = sum(int(t.get("quantity", 0)) for t in ev.ticket_types)
+        total_type_capacity = sum(int(t.get("total_quantity") or t.get("quantity") or 0) for t in ev.ticket_types)
         if ev.total_capacity < total_type_capacity:
             errors.append(f"Total capacity ({ev.total_capacity}) must be >= sum of ticket tiers ({total_type_capacity}).")
 

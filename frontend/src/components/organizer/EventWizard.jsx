@@ -217,10 +217,17 @@ export default function EventWizard({ eventIdToEdit = null, initialData = null, 
       setPublishedEvent(finalEvent);
       if (onSaveSuccess) onSaveSuccess(finalEvent);
     } catch (err) {
-      if (err.response?.data?.detail?.errors) {
-        setPublishErrors(err.response.data.detail.errors);
-      } else if (err.response?.data?.detail?.message) {
-        setPublishErrors([err.response.data.detail.message]);
+      const detail = err.response?.data?.detail;
+      if (detail?.errors && Array.isArray(detail.errors)) {
+        setPublishErrors(detail.errors);
+      } else if (detail?.message) {
+        setPublishErrors([detail.message]);
+      } else if (typeof detail === 'string') {
+        setPublishErrors([detail]);
+      } else if (Array.isArray(detail)) {
+        setPublishErrors(detail.map(e => e.msg || (typeof e === 'string' ? e : JSON.stringify(e))));
+      } else if (err.message && !err.response) {
+        setPublishErrors([`Failed to connect to backend (${err.message}). Please ensure the backend server is running on port 8000.`]);
       } else {
         setPublishErrors(["Failed to publish event. Please check all fields and try again."]);
       }
