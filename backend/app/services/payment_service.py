@@ -2,28 +2,35 @@ import uuid
 import tempfile
 import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
 from app.models.ticket import Event, Ticket
 from app.models.payment import Payment
+from app.models.booking_draft import BookingDraft
 from app.services.qr_service import generate_ticket_qr_base64
 from app.services.gst_service import generate_gst_invoice_pdf
-from app.services.booking_conversation import get_booking_session, BookingState
+from app.services.tier_inventory_service import confirm_tier_inventory_payment
 
 def verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> bool:
-    # In live production, HMAC SHA256 verify signature with RAZORPAY_KEY_SECRET
+    mode = os.getenv("PAYMENT_MODE", "mock").lower()
+    env = os.getenv("ENV", "development").lower()
+
+    # Mock signature acceptance strictly restricted to non-production environments when PAYMENT_MODE=mock
+    if mode == "mock" and env != "production":
+        return True
+
     secret = os.getenv("RAZORPAY_KEY_SECRET", "")
-    if secret and signature and signature != "mock_signature_test":
-        import hmac, hashlib
-        expected_sig = hmac.new(
-            secret.encode(),
-            f"{order_id}|{payment_id}".encode(),
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(expected_sig, signature)
-    # Dev / test fallback signature validation
-    return True
+    if not secret or not signature or signature == "mock_signature_test":
+        return False
+
+    import hmac, hashlib
+    expected_sig = hmac.new(
+        secret.encode(),
+        f"{order_id}|{payment_id}".encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected_sig, signature)
 
 def confirm_payment(
     order_id: str,
@@ -35,133 +42,145 @@ def confirm_payment(
     db: Session = None
 ) -> Dict[str, Any]:
     """
-    Idempotent payment confirmation service (§49e).
-    Called by both POST /api/v1/payments/verify and Razorpay Webhook.
+    Idempotent, transactional payment confirmation service.
+    Converts held inventory to sold, creates individual admission Ticket rows with HMAC signed QR codes.
     """
     if not verify_razorpay_signature(order_id, payment_id, signature):
         return {"status": "FAILED", "message": "Invalid payment signature verification."}
 
-    # 1. Idempotency Check: search existing payment by order_id or payment_id
+    # 1. Check existing confirmed payment by order_id or payment_id (Idempotency)
     existing_payment = db.query(Payment).filter(
         (Payment.order_id == order_id) | (Payment.payment_id == payment_id)
     ).first()
 
-    if existing_payment and existing_payment.ticket_id:
-        existing_ticket = db.query(Ticket).filter(Ticket.id == existing_payment.ticket_id).first()
-        ev = db.query(Event).filter(Event.id == existing_ticket.event_id).first() if existing_ticket else None
-        
-        token, qr_data_url = generate_ticket_qr_base64(
-            str(existing_ticket.id),
-            existing_payment.payment_id,
-            str(ev.id if ev else 1)
-        )
+    if existing_payment:
+        existing_tickets = db.query(Ticket).filter(
+            Ticket.user_id == existing_payment.user_id
+        ).order_by(Ticket.id.desc()).all()
 
+        ev = None
+        if existing_tickets:
+            ev = db.query(Event).filter(Event.id == existing_tickets[0].event_id).first()
+
+        ticket_list = []
+        for t in existing_tickets:
+            token, qr_url = generate_ticket_qr_base64(str(t.id), existing_payment.payment_id, str(ev.id if ev else 1))
+            ticket_list.append({
+                "id": t.id,
+                "ticket_number": t.ticket_number,
+                "event_title": ev.title if ev else "Event",
+                "price_paid": t.price_paid,
+                "status": t.status,
+                "qr_code_url": qr_url,
+                "qr_token": token
+            })
+
+        first_t = ticket_list[0] if ticket_list else {}
         return {
             "status": "ALREADY_CONFIRMED",
             "message": "Payment was already confirmed.",
-            "ticket": {
-                "id": existing_ticket.id,
-                "ticket_number": existing_ticket.ticket_number,
-                "event_title": ev.title if ev else "Event",
-                "price_paid": existing_ticket.price_paid,
-                "status": existing_ticket.status,
-                "invoice_number": existing_payment.invoice_number,
-                "qr_code_url": qr_data_url,
-                "date_str": ev.date_str if ev else "",
-                "location": ev.location if ev else ""
-            }
+            "ticket": first_t,
+            "tickets": ticket_list,
+            "invoice_number": existing_payment.invoice_number
         }
 
-    # 2. Get booking session info
-    session = get_booking_session(user_id)
-    event_id = session.event_id
-    qty = session.quantity or 1
-    unit_price = session.unit_price or 499.0
-
+    draft = None
     if booking_id:
-        from app.models.booking_draft import BookingDraft
         draft = db.query(BookingDraft).filter(BookingDraft.id == booking_id).first()
-        if draft:
-            event_id = draft.event_id
-            qty = draft.quantity
-            unit_price = draft.unit_price
 
-    if not event_id:
+    # Retrieve event and quantity from draft
+    if draft:
+        event_id = draft.event_id
+        qty = draft.quantity
+        unit_price = draft.unit_price
+        user_id = draft.user_id
+        ticket_type = draft.ticket_type
+    else:
         ev = db.query(Event).filter(Event.available_tickets > 0).first()
-        event_id = ev.id if ev else 1
-
-
-    # Atomic capacity check & update
-    rows_updated = db.query(Event).filter(
-        Event.id == event_id,
-        Event.available_tickets >= qty
-    ).update({Event.available_tickets: Event.available_tickets - qty})
-
-    if rows_updated == 0:
-        # Fallback query if available tickets are less or already recorded
-        ev = db.query(Event).filter(Event.id == event_id).first()
-        if not ev or ev.available_tickets < qty:
-            return {"status": "FAILED", "message": "Seats sold out or insufficient capacity."}
+        if not ev:
+            return {"status": "FAILED", "message": "No available event found for booking."}
+        event_id = ev.id
+        qty = 1
+        unit_price = ev.price
+        ticket_type = "General"
 
     ev = db.query(Event).filter(Event.id == event_id).first()
+    if not ev:
+        return {"status": "FAILED", "message": "Event not found."}
 
-    # Update tier inventory held -> sold
-    from app.services.tier_inventory_service import confirm_tier_inventory_payment
-    confirm_tier_inventory_payment(db, ev.id, getattr(session, "ticket_type", None), qty)
+    # Convert tier held inventory -> sold quantity
+    confirm_tier_inventory_payment(db, ev.id, ticket_type, qty)
 
-
-    ticket_no = f"TCK-{uuid.uuid4().hex[:8].upper()}"
     invoice_no = f"INV-2026-{uuid.uuid4().hex[:6].upper()}"
-    
-    from decimal import Decimal, ROUND_HALF_UP
-    unit_price_dec = Decimal(str(unit_price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    subtotal_dec = Decimal(str(unit_price_dec * qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    tax_dec = Decimal(str(subtotal_dec * Decimal("0.18"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    calculated_amount = float(subtotal_dec + tax_dec)
+    actual_payment_id = payment_id or f"pay_{uuid.uuid4().hex[:10]}"
+    actual_order_id = order_id or f"ord_{uuid.uuid4().hex[:10]}"
 
-    ticket = Ticket(
-        ticket_number=ticket_no,
-        event_id=ev.id,
-        user_id=user_id,
-        status="CONFIRMED",
-        price_paid=calculated_amount
-    )
-    db.add(ticket)
-    db.flush()
+    total_amount = draft.total if draft else (unit_price * qty * 1.18)
 
+    # Primary Payment Record
     payment = Payment(
-        payment_id=payment_id or f"pay_{uuid.uuid4().hex[:10]}",
-        order_id=order_id or f"ord_{uuid.uuid4().hex[:10]}",
-        ticket_id=ticket.id,
+        payment_id=actual_payment_id,
+        order_id=actual_order_id,
         user_id=user_id,
-        amount=ticket.price_paid,
+        amount=total_amount,
         status="SUCCESS",
         invoice_number=invoice_no,
         escrow_release_at=datetime.utcnow() + timedelta(days=2)
     )
     db.add(payment)
+    db.flush()
 
-    # Generate HMAC Signed QR Token
-    qr_token, qr_b64_image = generate_ticket_qr_base64(str(ticket.id), payment.payment_id, str(ev.id))
-    ticket.qr_code_path = qr_token
+    # Create 1 Ticket row per admission (Requirement 19)
+    per_ticket_price = round(total_amount / qty, 2)
+    created_tickets = []
+
+    for i in range(qty):
+        t_no = f"TCK-{uuid.uuid4().hex[:8].upper()}"
+        t = Ticket(
+            ticket_number=t_no,
+            event_id=ev.id,
+            user_id=user_id,
+            status="CONFIRMED",
+            price_paid=per_ticket_price
+        )
+        db.add(t)
+        db.flush()
+
+        qr_token, qr_b64 = generate_ticket_qr_base64(str(t.id), payment.payment_id, str(ev.id))
+        t.qr_code_path = qr_token
+
+        created_tickets.append({
+            "id": t.id,
+            "ticket_number": t.ticket_number,
+            "event_title": ev.title,
+            "price_paid": t.price_paid,
+            "status": t.status,
+            "invoice_number": invoice_no,
+            "qr_code_url": qr_b64,
+            "qr_token": qr_token,
+            "date_str": ev.date_str,
+            "location": ev.location
+        })
+
+    if created_tickets:
+        payment.ticket_id = created_tickets[0]["id"]
+
+    if draft:
+        draft.status = "CONFIRMED"
 
     db.commit()
-    db.refresh(ticket)
 
-    # Mark session as PAID
-    session.state = BookingState.PAID
-
-    # Generate GST Invoice PDF asynchronously / in temp directory
+    # Generate GST Invoice PDF
     pdf_dir = os.path.join(tempfile.gettempdir(), "chatassist_uploads", "invoices")
     os.makedirs(pdf_dir, exist_ok=True)
     pdf_path = os.path.join(pdf_dir, f"{invoice_no}.pdf")
     try:
         generate_gst_invoice_pdf({
-            "id": ticket.id,
+            "id": created_tickets[0]["id"] if created_tickets else 1,
             "invoice_number": invoice_no,
-            "ticket_number": ticket_no,
+            "ticket_number": created_tickets[0]["ticket_number"] if created_tickets else "TCK-100",
             "event_title": ev.title,
-            "price_paid": ticket.price_paid,
+            "price_paid": total_amount,
             "user_name": "Valued Customer",
             "user_email": "customer@example.com"
         }, pdf_path)
@@ -170,17 +189,9 @@ def confirm_payment(
 
     return {
         "status": "CONFIRMED",
-        "message": "Payment verified and ticket issued successfully!",
+        "message": f"Payment verified and {qty} ticket(s) issued successfully!",
         "source": source,
-        "ticket": {
-            "id": ticket.id,
-            "ticket_number": ticket.ticket_number,
-            "event_title": ev.title,
-            "price_paid": ticket.price_paid,
-            "status": ticket.status,
-            "invoice_number": invoice_no,
-            "qr_code_url": qr_b64_image,
-            "date_str": ev.date_str,
-            "location": ev.location
-        }
+        "ticket": created_tickets[0] if created_tickets else {},
+        "tickets": created_tickets,
+        "invoice_number": invoice_no
     }

@@ -41,7 +41,15 @@ def get_event(event_id: int, db: Session = Depends(get_db)):
     return ev
 
 @router.post("/events", response_model=EventResponse)
-def create_event(event_in: EventCreate, organizer_id: int = 1, db: Session = Depends(get_db)):
+def create_event(
+    event_in: EventCreate,
+    current_user: Optional[User] = Depends(get_current_user),
+    organizer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    effective_organizer_id = organizer_id or (current_user.id if current_user else 1)
+    max_per_order = event_in.max_tickets_per_booking or 10
+
     ev = Event(
         title=event_in.title,
         description=event_in.description,
@@ -55,7 +63,8 @@ def create_event(event_in: EventCreate, organizer_id: int = 1, db: Session = Dep
         price=event_in.price,
         total_capacity=event_in.total_capacity,
         available_tickets=event_in.total_capacity,
-        organizer_id=organizer_id,
+        max_tickets_per_booking=max_per_order,
+        organizer_id=effective_organizer_id,
         status=event_in.status or "DRAFT",
         image_url=event_in.image_url or "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&auto=format&fit=crop&q=80",
         cancellation_policy=event_in.cancellation_policy or "Standard 24-hour cancellation policy applies.",
@@ -68,10 +77,26 @@ def create_event(event_in: EventCreate, organizer_id: int = 1, db: Session = Dep
     db.commit()
     db.refresh(ev)
 
-    if event_in.ticket_types:
-        from app.services.tier_inventory_service import create_or_update_event_tiers
-        create_or_update_event_tiers(db, ev, event_in.ticket_types)
+    # Transactional Tier Creation (Requirement 7 & 8)
+    tiers_to_create = event_in.ticket_types or []
+    if not tiers_to_create:
+        tiers_to_create = [{
+            "name": "General",
+            "price": ev.price,
+            "total_quantity": ev.total_capacity,
+            "min_per_order": 1,
+            "max_per_order": max_per_order
+        }]
 
+    try:
+        from app.services.tier_inventory_service import create_or_update_event_tiers
+        create_or_update_event_tiers(db, ev, tiers_to_create)
+    except Exception as e:
+        db.delete(ev)
+        db.commit()
+        raise HTTPException(status_code=400, detail=f"Failed to create ticket tiers: {str(e)}")
+
+    db.refresh(ev)
     return ev
 
 @router.put("/events/{event_id}", response_model=EventResponse)
@@ -130,6 +155,19 @@ def publish_event(event_id: int, db: Session = Depends(get_db), owner_check: Eve
     if errors:
         raise HTTPException(status_code=400, detail={"message": "Validation failed on publish", "errors": errors})
 
+    # Ensure ticket_tiers table contains at least one default General tier upon publish
+    from app.models.ticket_tier import TicketTier
+    existing_tiers = db.query(TicketTier).filter(TicketTier.event_id == ev.id).all()
+    if not existing_tiers:
+        from app.services.tier_inventory_service import create_or_update_event_tiers
+        create_or_update_event_tiers(db, ev, [{
+            "name": "General",
+            "price": ev.price,
+            "total_quantity": ev.total_capacity,
+            "min_per_order": 1,
+            "max_per_order": ev.max_tickets_per_booking or 10
+        }])
+
     ev.status = "PUBLISHED"
     db.commit()
     db.refresh(ev)
@@ -176,117 +214,147 @@ def cancel_event(event_id: int, db: Session = Depends(get_db), owner_check: Even
 
 
 @router.post("/book", response_model=BookingResponse)
-def book_ticket(booking_in: BookingCreate, user_id: int = 1, db: Session = Depends(get_db)):
-    # Check Idempotency key if provided
-    if booking_in.idempotency_key:
-        existing_payment = db.query(Payment).filter(Payment.idempotency_key == booking_in.idempotency_key).first()
-        if existing_payment and existing_payment.ticket_id:
-            t = db.query(Ticket).filter(Ticket.id == existing_payment.ticket_id).first()
-            ev = db.query(Event).filter(Event.id == t.event_id).first()
-            token, qr_data_url = generate_ticket_qr_base64(str(t.id), str(existing_payment.id), str(ev.id))
-            return {
-                "ticket_id": t.id,
-                "ticket_number": t.ticket_number,
-                "event_title": ev.title,
-                "price_paid": t.price_paid,
-                "status": t.status,
-                "invoice_number": existing_payment.invoice_number,
-                "qr_code_url": qr_data_url
-            }
-
-    # Atomic decrement of available tickets to prevent race conditions / double bookings
-    rows_updated = db.query(Event).filter(
-        Event.id == booking_in.event_id,
-        Event.available_tickets >= booking_in.quantity
-    ).update({Event.available_tickets: Event.available_tickets - booking_in.quantity})
-
-    if rows_updated == 0:
-        raise HTTPException(status_code=400, detail="Not enough tickets available or sold out")
+def book_ticket(
+    booking_in: BookingCreate,
+    current_user: Optional[User] = Depends(get_current_user),
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    effective_user_id = (current_user.id if current_user else None) or user_id or 1
 
     ev = db.query(Event).filter(Event.id == booking_in.event_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
 
-    ticket_no = f"TCK-{uuid.uuid4().hex[:8].upper()}"
-    invoice_no = f"INV-2026-{uuid.uuid4().hex[:6].upper()}"
+    if ev.status != "PUBLISHED":
+        raise HTTPException(status_code=400, detail="Event is not published for booking")
 
-    ticket = Ticket(
-        ticket_number=ticket_no,
+    from app.models.ticket_tier import TicketTier
+    tier_query = db.query(TicketTier).filter(TicketTier.event_id == ev.id)
+    if booking_in.tier_id:
+        tier = tier_query.filter(TicketTier.id == booking_in.tier_id).first()
+    elif booking_in.ticket_type:
+        tier = tier_query.filter(TicketTier.name.ilike(f"%{booking_in.ticket_type}%")).first()
+    else:
+        tier = None
+
+    if not tier:
+        tier = tier_query.first()
+
+    if not tier:
+        raise HTTPException(status_code=400, detail="No valid ticket tier available for this event.")
+
+    if booking_in.quantity < tier.min_per_order:
+        raise HTTPException(status_code=400, detail=f"Minimum order quantity for '{tier.name}' is {tier.min_per_order}.")
+
+    if booking_in.quantity > tier.max_per_order:
+        raise HTTPException(status_code=400, detail=f"Maximum order quantity for '{tier.name}' is {tier.max_per_order}.")
+
+    if booking_in.quantity > tier.available_quantity:
+        raise HTTPException(status_code=400, detail="Not enough tickets available or sold out.")
+
+    from decimal import Decimal, ROUND_HALF_UP
+    from app.models.booking_draft import BookingDraft
+    
+    unit_price = Decimal(str(tier.price))
+    subtotal = unit_price * Decimal(str(booking_in.quantity))
+
+    discount = Decimal("0.0")
+    if booking_in.coupon_code:
+        from app.models.promo import PromoCode
+        promo = db.query(PromoCode).filter(PromoCode.code == booking_in.coupon_code.upper()).first()
+        if promo and promo.is_active:
+            if promo.discount_type == "PERCENTAGE":
+                discount = (subtotal * Decimal(str(promo.discount_value))) / Decimal("100")
+            else:
+                discount = Decimal(str(promo.discount_value))
+            if promo.max_discount_amount:
+                discount = min(discount, Decimal(str(promo.max_discount_amount)))
+
+    taxable = max(Decimal("0.0"), subtotal - discount)
+    tax = (taxable * Decimal("0.18")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total = (taxable + tax).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # Check idempotency
+    if booking_in.idempotency_key:
+        existing_draft = db.query(BookingDraft).filter(BookingDraft.idempotency_key == booking_in.idempotency_key).first()
+        if existing_draft:
+            return {
+                "booking_id": existing_draft.id,
+                "event_title": ev.title,
+                "price_paid": existing_draft.total,
+                "status": existing_draft.status
+            }
+
+    # Hold inventory in TicketTier
+    from app.services.tier_inventory_service import hold_tier_inventory
+    hold_tier_inventory(db, ev.id, tier.id, booking_in.quantity, effective_user_id)
+
+    draft_number = f"DFT-{uuid.uuid4().hex[:8].upper()}"
+    draft = BookingDraft(
+        draft_number=draft_number,
+        user_id=effective_user_id,
         event_id=ev.id,
-        user_id=user_id,
-        status="CONFIRMED",
-        price_paid=ev.price * booking_in.quantity
-    )
-    db.add(ticket)
-    db.flush()
-
-    payment = Payment(
-        payment_id=f"pay_{uuid.uuid4().hex[:10]}",
-        order_id=f"ord_{uuid.uuid4().hex[:10]}",
-        ticket_id=ticket.id,
-        user_id=user_id,
-        amount=ticket.price_paid,
-        status="SUCCESS",
+        ticket_type=tier.name,
+        quantity=booking_in.quantity,
+        unit_price=float(unit_price),
+        subtotal=float(subtotal),
+        tax=float(tax),
+        total=float(total),
         idempotency_key=booking_in.idempotency_key,
-        invoice_number=invoice_no,
-        escrow_release_at=datetime.utcnow() + timedelta(days=2)
+        status="HELD",
+        expires_at=datetime.utcnow() + timedelta(minutes=10)
     )
-    db.add(payment)
-
-    # Generate HMAC Signed QR Token
-    qr_token, qr_b64_image = generate_ticket_qr_base64(str(ticket.id), payment.payment_id, str(ev.id))
-    ticket.qr_code_path = qr_token
-
-    # Run IsolationForest Fraud Detector check on transaction
-    fraud_res = fraud_detector.analyze_transaction(velocity=2, failed_ratio=0.0, distinct_ips=1, time_delta=120)
-    if fraud_res["is_suspicious"]:
-        flag = FraudFlag(
-            user_id=user_id,
-            booking_id=ticket.id,
-            score=fraud_res["anomaly_score"],
-            reason=fraud_res["reason"],
-            status="PENDING_REVIEW"
-        )
-        db.add(flag)
-
+    db.add(draft)
     db.commit()
-    db.refresh(ticket)
+    db.refresh(draft)
 
-    # Generate GST Invoice PDF in background/storage
-    pdf_dir = os.path.join(tempfile.gettempdir(), "chatassist_uploads", "invoices")
-    os.makedirs(pdf_dir, exist_ok=True)
-    pdf_path = os.path.join(pdf_dir, f"{invoice_no}.pdf")
-    try:
-        generate_gst_invoice_pdf({
-            "id": ticket.id,
-            "invoice_number": invoice_no,
-            "ticket_number": ticket_no,
+    # Zero payment / free event completion
+    if total == Decimal("0.0"):
+        from app.services.payment_service import confirm_payment
+        res = confirm_payment(
+            order_id=f"free_ord_{draft.id}",
+            payment_id=f"free_pay_{draft.id}",
+            signature="free_event_trusted",
+            source="free_booking",
+            booking_id=draft.id,
+            user_id=effective_user_id,
+            db=db
+        )
+        return {
+            "booking_id": draft.id,
+            "ticket_id": res.get("ticket", {}).get("id"),
+            "ticket_number": res.get("ticket", {}).get("ticket_number"),
             "event_title": ev.title,
-            "price_paid": ticket.price_paid,
-            "user_name": "Valued Customer",
-            "user_email": "customer@example.com"
-        }, pdf_path)
-    except Exception as e:
-        print(f"Warning: PDF generation failed ({e})")
+            "price_paid": 0.0,
+            "status": "CONFIRMED",
+            "invoice_number": res.get("invoice_number"),
+            "qr_code_url": res.get("ticket", {}).get("qr_code_url"),
+            "tickets": res.get("tickets")
+        }
 
     return {
-        "ticket_id": ticket.id,
-        "ticket_number": ticket.ticket_number,
+        "booking_id": draft.id,
         "event_title": ev.title,
-        "price_paid": ticket.price_paid,
-        "status": ticket.status,
-        "invoice_number": invoice_no,
-        "qr_code_url": qr_b64_image
+        "price_paid": draft.total,
+        "status": "HELD"
     }
 
 @router.get("/user/tickets")
-def get_user_tickets(user_id: int = 1, db: Session = Depends(get_db)):
-    tickets = db.query(Ticket).filter(Ticket.user_id == user_id).order_by(Ticket.id.desc()).all()
+def get_user_tickets(
+    current_user: Optional[User] = Depends(get_current_user),
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    effective_user_id = (current_user.id if current_user else None) or user_id or 1
+    tickets = db.query(Ticket).filter(Ticket.user_id == effective_user_id).order_by(Ticket.id.desc()).all()
     results = []
     for t in tickets:
         ev = db.query(Event).filter(Event.id == t.event_id).first()
-        payment = db.query(Payment).filter(Payment.ticket_id == t.id).first()
+        payment = db.query(Payment).filter(Payment.user_id == t.user_id).order_by(Payment.id.desc()).first()
         payment_id = payment.payment_id if payment else "pay_sample"
         token, qr_data_url = generate_ticket_qr_base64(str(t.id), payment_id, str(ev.id if ev else 1))
-        
+
         results.append({
             "id": t.id,
             "ticket_number": t.ticket_number,

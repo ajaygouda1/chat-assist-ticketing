@@ -128,17 +128,22 @@ class OrganizerApplicationRequest(BaseModel):
 
 class BookingCreate(BaseModel):
     event_id: int
+    tier_id: Optional[int] = None
+    ticket_type: Optional[str] = "General"
     quantity: int = 1
     idempotency_key: Optional[str] = None
+    coupon_code: Optional[str] = None
 
 class BookingResponse(BaseModel):
-    ticket_id: int
-    ticket_number: str
+    booking_id: Optional[int] = None
+    ticket_id: Optional[int] = None
+    ticket_number: Optional[str] = None
     event_title: str
     price_paid: float
     status: str
     invoice_number: Optional[str] = None
     qr_code_url: Optional[str] = None
+    tickets: Optional[List[Dict[str, Any]]] = None
 
 class ChatRequest(BaseModel):
     message: Optional[str] = ""

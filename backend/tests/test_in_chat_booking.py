@@ -13,28 +13,34 @@ from app.services.payment_service import confirm_payment
 from app.services.openai_service import ai_service
 
 def test_in_chat_direct_booking_flow():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     user_id = 999
 
     print("\n--- IN-CHAT DIRECT BOOKING & PAYMENT TEST ---")
 
     # Step 1: Ensure demo event exists
-    event = db.query(Event).filter(Event.available_tickets > 0).first()
-    if not event:
-        event = Event(
-            title="AI Innovation Summit 2026",
-            description="Leading AI Conference",
-            category="Tech",
-            location="Bengaluru",
-            date_str="2026-09-15",
-            price=499.0,
-            total_capacity=10,
-            available_tickets=10,
-            status="PUBLISHED"
-        )
-        db.add(event)
-        db.commit()
-        db.refresh(event)
+    event = Event(
+        title="AI Innovation Summit 2026",
+        description="Leading AI Conference",
+        category="Tech",
+        location="Bengaluru",
+        date_str="2026-09-15",
+        price=499.0,
+        total_capacity=10,
+        available_tickets=10,
+        status="PUBLISHED"
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+
+    from app.services.tier_inventory_service import create_or_update_event_tiers
+    create_or_update_event_tiers(db, event, [
+        {"name": "VIP Pass", "price": 749.0, "total_quantity": 5, "min_per_order": 1, "max_per_order": 5},
+        {"name": "Standard Pass", "price": 499.0, "total_quantity": 5, "min_per_order": 1, "max_per_order": 5}
+    ])
 
     print(f"1. Target Event: '{event.title}' (Price: INR {event.price}, Available: {event.available_tickets})")
 
@@ -83,6 +89,15 @@ def test_in_chat_direct_booking_flow():
     print("\nPayment Confirmation Result:", confirm_res["status"])
     print("Ticket Details:", confirm_res.get("ticket"))
     assert confirm_res["status"] == "CONFIRMED"
+
+    ai_service.process_chat_message(
+        message="",
+        user_id=user_id,
+        db=db,
+        event_type="system_event",
+        payload={"event": "PAYMENT_VERIFIED", "ticket": confirm_res.get("ticket")}
+    )
+
     assert session.state == BookingState.PAID
     assert confirm_res["ticket"]["status"] == "CONFIRMED"
     assert confirm_res["ticket"]["qr_code_url"] is not None

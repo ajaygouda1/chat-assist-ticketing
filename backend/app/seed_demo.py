@@ -79,7 +79,7 @@ def seed_demo_data():
     # 4. Events
     events_data = [
         {
-            "title": "India AI & Agentic Systems Summit 2026",
+            "title": "India AI & Deep Learning Summit",
             "description": "Full-day developer conference on LLMs, agentic workflows, and real-time AI inference.",
             "category": "Tech",
             "location": "NIMHANS Convention Centre, Bengaluru",
@@ -127,7 +127,12 @@ def seed_demo_data():
             db.commit()
             db.refresh(ev)
 
-            # Initialize seat map
+            from app.services.tier_inventory_service import create_or_update_event_tiers
+            create_or_update_event_tiers(db, ev, [
+                {"name": "General", "price": ed["price"], "total_quantity": ed["total_capacity"], "min_per_order": 1, "max_per_order": 10},
+                {"name": "VIP Pass", "price": ed["price"] * 1.5, "total_quantity": 50, "min_per_order": 1, "max_per_order": 10},
+                {"name": "Standard", "price": ed["price"], "total_quantity": 100, "min_per_order": 1, "max_per_order": 10}
+            ])
             initialize_event_seats(db, ev.id)
 
     # 5. Promos

@@ -18,12 +18,14 @@ router = APIRouter()
 @router.get("/organizer/events")
 def get_organizer_events(
     status: Optional[str] = Query(None, description="Filter by status: DRAFT, PUBLISHED, PAST, CANCELLED"),
-    organizer_id: int = 1,
+    current_user: Optional[User] = Depends(get_current_user),
+    organizer_id: Optional[int] = Query(None),
     db: Session = Depends(get_db)
 ):
+    effective_organizer_id = (current_user.id if current_user else None) or organizer_id or 1
     query = db.query(Event)
-    if organizer_id:
-        query = query.filter((Event.organizer_id == organizer_id) | (Event.organizer_id.is_(None)))
+    if effective_organizer_id:
+        query = query.filter((Event.organizer_id == effective_organizer_id) | (Event.organizer_id.is_(None)))
     if status and status.upper() != "ALL":
         query = query.filter(Event.status == status.upper())
     

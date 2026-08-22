@@ -9,14 +9,10 @@ from app.services.payment_service import confirm_payment
 
 @pytest.fixture
 def db():
-    from app.core.database import engine
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE events ADD COLUMN max_tickets_per_booking INTEGER DEFAULT 10;"))
-            conn.commit()
-        except Exception:
-            pass
+    from app.core.database import engine, Base
+    from app.seed_demo import seed_demo_data
+    Base.metadata.create_all(bind=engine)
+    seed_demo_data()
     session = SessionLocal()
     try:
         yield session
@@ -101,7 +97,7 @@ def test_5_cancel_active_draft(db: Session):
     session = get_booking_session(user_id)
     session.reset()
 
-    ai_service.process_chat_message("Book 2 VIP tickets", user_id=user_id, db=db)
+    ai_service.process_chat_message("Book 2 VIP tickets for India AI & Deep Learning Summit", user_id=user_id, db=db)
     assert session.state == BookingState.QTY_SELECTED
 
     # Cancel draft

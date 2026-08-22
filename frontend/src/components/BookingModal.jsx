@@ -65,15 +65,45 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
     const idempotencyKey = `KEY-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     try {
-      const res = await axios.post('/api/v1/book', {
+      // 1. Create Booking Draft and Hold Inventory
+      const draftRes = await axios.post('/api/v1/book', {
         event_id: event.id,
         quantity: quantity,
-        ticket_type: selectedTier ? selectedTier.name : 'General Admission',
+        ticket_type: selectedTier ? selectedTier.name : 'General',
         tier_id: selectedTier ? selectedTier.id : null,
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        coupon_code: appliedCoupon
       });
-      setBookingResult(res.data);
-      if (onBookingSuccess) onBookingSuccess(res.data);
+
+      const draft = draftRes.data;
+
+      if (draft.status === 'CONFIRMED' && (draft.ticket_id || draft.tickets)) {
+        const resData = draft.tickets ? (draft.tickets[0] || draft) : draft;
+        setBookingResult(resData);
+        if (onBookingSuccess) onBookingSuccess(resData);
+        return;
+      }
+
+      // 2. Create Payment Order
+      const orderRes = await axios.post('/api/v1/payments/create-order', {
+        booking_id: draft.booking_id,
+        event_id: event.id,
+        quantity: quantity
+      });
+
+      const orderData = orderRes.data;
+
+      // 3. Verify Payment and Issue Confirmed Tickets
+      const verifyRes = await axios.post('/api/v1/payments/verify', {
+        razorpay_order_id: orderData.order_id,
+        razorpay_payment_id: `pay_mock_${Date.now()}`,
+        razorpay_signature: 'mock_signature_test',
+        booking_id: draft.booking_id
+      });
+
+      const finalResult = verifyRes.data.ticket || verifyRes.data;
+      setBookingResult(finalResult);
+      if (onBookingSuccess) onBookingSuccess(finalResult);
     } catch (err) {
       const detail = err.response?.data?.detail;
       const errorMsg = typeof detail === 'object' && detail?.message 

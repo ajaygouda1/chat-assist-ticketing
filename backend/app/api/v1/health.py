@@ -1,10 +1,11 @@
 import time
+import os
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.core.database import get_db
+from app.core.database import get_db, engine
+from app.core.config import settings
 from app.core.redis import redis_manager
-from app.core.feature_flags import feature_flags
 
 router = APIRouter()
 
@@ -12,35 +13,45 @@ router = APIRouter()
 @router.get("/health/status")
 def get_system_health(db: Session = Depends(get_db)):
     start = time.time()
-    
-    # 1. DB Health Check
-    db_status = "Healthy"
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception as e:
-        db_status = f"Unhealthy ({str(e)})"
+    dialect_name = engine.dialect.name.lower()
 
-    # 2. Redis Health Check
-    redis_status = "Healthy (Redis Cluster)" if not redis_manager.using_fallback else "Healthy (In-Memory Manager)"
+    # 1. Real DB Ping
+    db_status = "healthy"
+    if settings.ENV == "production" and dialect_name == "sqlite":
+        db_status = "misconfigured"
+    else:
+        try:
+            db.execute(text("SELECT 1"))
+        except Exception as e:
+            db_status = "unhealthy"
 
-    # 3. Latency
+    # 2. Redis Ping Check
+    redis_status = "healthy" if not redis_manager.using_fallback else "fallback"
+
+    # 3. Payment Provider Configured Check
+    payment_configured = bool(
+        settings.RAZORPAY_KEY_ID and 
+        settings.RAZORPAY_KEY_SECRET and 
+        settings.RAZORPAY_KEY_ID != "rzp_test_mockkey123"
+    ) or (settings.PAYMENT_MODE == "mock" and settings.ENV != "production")
+
     latency_ms = round((time.time() - start) * 1000, 2)
+    overall_status = "healthy" if (db_status == "healthy" and redis_status in ["healthy", "fallback"]) else "degraded"
 
     return {
-        "status": "Healthy" if db_status == "Healthy" else "Degraded",
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "components": {
-            "api": "Healthy",
-            "database": db_status,
-            "redis": redis_status,
-            "job_queue": "Healthy",
-            "payment_provider": "Healthy",
-            "email_service": "Healthy"
+        "status": overall_status,
+        "environment": settings.ENV,
+        "database": {
+            "status": db_status,
+            "dialect": dialect_name
+        },
+        "redis": {
+            "status": redis_status
+        },
+        "payment": {
+            "configured": payment_configured
         },
         "metrics": {
-            "p95_latency_ms": latency_ms,
-            "error_rate_pct": 0.0,
-            "active_ws_connections": 0
-        },
-        "feature_flags": feature_flags.get_all_flags()
+            "latency_ms": latency_ms
+        }
     }

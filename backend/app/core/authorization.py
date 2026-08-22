@@ -1,3 +1,4 @@
+import os
 import jwt
 from fastapi import Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session
@@ -13,7 +14,8 @@ def get_current_user(
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
-    Extracts current authenticated user from JWT Bearer token or X-User-Id header fallback.
+    Extracts current authenticated user strictly from JWT Bearer token.
+    Dev bypass fallback is permitted ONLY if ENV != production AND ALLOW_DEV_AUTH_BYPASS=true.
     """
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
@@ -27,14 +29,34 @@ def get_current_user(
         except Exception:
             pass
 
-    # Fallback to header or default user ID 1 for testing
-    uid = x_user_id or 1
-    user = db.query(User).filter(User.id == uid).first()
-    return user
+    # Optional development-only bypass (strictly disabled in production)
+    dev_bypass_enabled = (settings.ENV != "production") and (os.getenv("ALLOW_DEV_AUTH_BYPASS", "false").lower() == "true")
+    if dev_bypass_enabled:
+        uid = x_user_id or 1
+        user = db.query(User).filter(User.id == uid).first()
+        if user:
+            return user
+
+    return None
+
+def require_current_user(
+    current_user: Optional[User] = Depends(get_current_user)
+) -> User:
+    """
+    Ensures that a request has a valid authenticated user.
+    Raises 401 Unauthorized if missing.
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please include a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    return current_user
 
 def require_event_owner(
     event_id: int,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_current_user),
     db: Session = Depends(get_db)
 ) -> Event:
     """
@@ -46,13 +68,10 @@ def require_event_owner(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if not current_user:
+    user_role = (current_user.role or "customer").lower()
+    if user_role in ["super_admin", "admin"]:
         return event
 
-    if current_user.role in ["super_admin", "admin"]:
-        return event  # Super admins can edit/manage all events
-
-    # Check if event has an organizer_id set and matches current user
     if event.organizer_id is not None and event.organizer_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -61,16 +80,12 @@ def require_event_owner(
 
     return event
 
-
 def require_roles(allowed_roles: list):
     """
     Dependency factory to check if the authenticated user has one of the allowed roles.
     Super admin is always allowed.
     """
-    def role_checker(current_user: Optional[User] = Depends(get_current_user)):
-        if not current_user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-        
+    def role_checker(current_user: User = Depends(require_current_user)):
         user_role = (current_user.role or "customer").lower()
         allowed = [r.lower() for r in allowed_roles] + ["super_admin"]
         
@@ -81,4 +96,3 @@ def require_roles(allowed_roles: list):
             )
         return current_user
     return role_checker
-
