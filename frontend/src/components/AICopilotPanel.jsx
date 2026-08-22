@@ -1,20 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send, ShieldCheck, Sparkles, X, CheckCircle2, CornerDownLeft } from 'lucide-react';
 import axios from 'axios';
-import { EventCard, BookingSummaryCard, PaymentButton, TicketConfirmationCard, QuickReplyButtons } from './chat/ChatMessageComponents';
+import { EventCard, BookingSummaryCard, PaymentButton, TicketConfirmationCard, QuickReplyButtons, CreateEventEntryCard } from './chat/ChatMessageComponents';
 
-export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBooking }) {
-  const [messages, setMessages] = useState([
-    {
-      sender: 'assistant',
-      text: 'Hello! I am your ChatAssist ML-Powered Copilot. I automatically route your requests using a trained intent classifier and confirm live pricing directly with our backend database.',
-      intent: 'general_chat',
-      confidence: 0.99,
-      routed_to: 'SYSTEM_INIT',
-      grounding_status: 'GROUNDED_LIVE_DB'
-    }
-  ]);
+export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBooking, onOpenCreateWizard }) {
+
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
@@ -63,20 +56,40 @@ export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBookin
     }
   };
 
-  const handleTicketIssued = (ticket) => {
-    setMessages(prev => [
-      ...prev,
-      {
-        sender: 'assistant',
-        text: '🎉 Payment Verified! Here is your confirmed event ticket pass:',
-        intent: 'book_ticket',
-        confidence: 1.0,
-        routed_to: 'PAYMENT_VERIFIED',
-        grounding_status: 'GROUNDED_LIVE_DB',
-        type: 'ticket_confirmation',
-        payload: ticket
-      }
-    ]);
+  const handleTicketIssued = async (ticket) => {
+    try {
+      const res = await axios.post('/api/v1/chat', {
+        event_type: 'system_event',
+        payload: { event: 'PAYMENT_VERIFIED', ticket: ticket }
+      });
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: res.data.reply || '🎉 Payment verified! Here is your confirmed event ticket pass:',
+          intent: 'book_ticket',
+          confidence: 1.0,
+          routed_to: 'PAYMENT_VERIFIED',
+          grounding_status: 'GROUNDED_LIVE_DB',
+          type: 'ticket_confirmation',
+          payload: ticket
+        }
+      ]);
+    } catch (err) {
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: '🎉 Payment Verified! Here is your confirmed event ticket pass:',
+          intent: 'book_ticket',
+          confidence: 1.0,
+          routed_to: 'PAYMENT_VERIFIED',
+          grounding_status: 'GROUNDED_LIVE_DB',
+          type: 'ticket_confirmation',
+          payload: ticket
+        }
+      ]);
+    }
   };
 
   if (!isOpen) return null;
@@ -90,9 +103,9 @@ export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBookin
             <Bot size={20} color="white" />
           </div>
           <div>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'white' }}>AI Chat Copilot</h3>
-            <p style={{ fontSize: '0.75rem', color: '#A78BFA', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <ShieldCheck size={12} /> Live DB Grounded & In-Chat Booking
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'white' }}>🤖 ChatAssist</h3>
+            <p style={{ fontSize: '0.75rem', color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+              <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#10B981' }}></span> Live data
             </p>
           </div>
         </div>
@@ -119,6 +132,9 @@ export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBookin
               {m.text}
 
               {/* Rich Component Rendering */}
+              {m.type === 'create_event_entry' && (
+                <CreateEventEntryCard {...(m.payload || {})} onStartSetup={(initialData) => onOpenCreateWizard && onOpenCreateWizard(initialData)} />
+              )}
               {m.type === 'event_card' && m.payload && (
                 <EventCard {...m.payload} onSelect={(txt) => sendMessage(txt)} />
               )}
@@ -131,6 +147,7 @@ export default function AICopilotPanel({ isOpen, onClose, onSelectEventForBookin
               {m.type === 'ticket_confirmation' && m.payload && (
                 <TicketConfirmationCard {...m.payload} />
               )}
+
 
               {/* Quick Reply Chips */}
               {m.quick_replies && (

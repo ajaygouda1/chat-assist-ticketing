@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { X, Ticket, ShieldCheck, Share2, Check, Download, CreditCard } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Ticket, ShieldCheck, Share2, Check, Download, CreditCard, Wallet } from 'lucide-react';
 import axios from 'axios';
 
 export default function BookingModal({ event, onClose, onBookingSuccess }) {
+  const [tiers, setTiers] = useState([]);
+  const [selectedTier, setSelectedTier] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [couponCode, setCouponCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -11,11 +13,34 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
   const [loading, setLoading] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [bookingError, setBookingError] = useState('');
+
+  // Fetch real-time ticket tier inventory from backend
+  useEffect(() => {
+    if (event?.id) {
+      axios.get(`/api/v1/events/${event.id}/tiers`)
+        .then(res => {
+          const tierList = res.data?.tiers || [];
+          setTiers(tierList);
+          if (tierList.length > 0) {
+            const defaultSelected = tierList.find(t => t.available_quantity > 0) || tierList[0];
+            setSelectedTier(defaultSelected);
+            setQuantity(Math.max(1, defaultSelected.min_per_order || 1));
+          }
+        })
+        .catch(err => console.error("Failed to fetch event tiers:", err));
+    }
+  }, [event?.id]);
 
   if (!event) return null;
 
-  const rawTotal = event.price * quantity;
+  const currentPrice = selectedTier ? selectedTier.price : (event.price || 0);
+  const rawTotal = currentPrice * quantity;
   const totalAmount = Math.max(0, rawTotal - discountAmount);
+  const maxAllowedQty = selectedTier 
+    ? Math.min(selectedTier.max_per_order || 10, selectedTier.available_quantity || 0)
+    : (event.available_tickets || 10);
+  const minAllowedQty = selectedTier ? (selectedTier.min_per_order || 1) : 1;
 
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -34,28 +59,34 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
     }
   };
 
-
   const handleBook = async () => {
     setLoading(true);
+    setBookingError('');
     const idempotencyKey = `KEY-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     try {
       const res = await axios.post('/api/v1/book', {
         event_id: event.id,
         quantity: quantity,
+        ticket_type: selectedTier ? selectedTier.name : 'General Admission',
+        tier_id: selectedTier ? selectedTier.id : null,
         idempotency_key: idempotencyKey
       });
       setBookingResult(res.data);
       if (onBookingSuccess) onBookingSuccess(res.data);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Booking failed. Please try again.');
+      const detail = err.response?.data?.detail;
+      const errorMsg = typeof detail === 'object' && detail?.message 
+        ? detail.message 
+        : (detail || "⚠️ We couldn't reserve your tickets right now.");
+      setBookingError(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCopyShareLink = () => {
-    navigator.clipboard.writeText(`https://chatassist.app/pay-split?event=${event.id}&inviter=Ajay`);
+    navigator.clipboard.writeText(`https://chatassist.app/pay-split?event=${event.id}&inviter=Customer`);
     setCopiedShare(true);
     setTimeout(() => setCopiedShare(false), 2000);
   };
@@ -76,30 +107,111 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
         {!bookingResult ? (
           <div>
             {/* Event Summary */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-glass)', padding: '16px', borderRadius: '12px', marginBottom: '20px' }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-glass)', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#60A5FA', marginBottom: '4px' }}>{event.title}</h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{event.location} • {event.date_str}</p>
             </div>
 
+            {/* Ticket Tier Selection */}
+            {tiers.length > 0 && (
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: 600 }}>
+                  Select Ticket Tier
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {tiers.map(t => {
+                    const isSelected = selectedTier?.id === t.id;
+                    const isSoldOut = t.available_quantity <= 0;
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          if (!isSoldOut) {
+                            setSelectedTier(t);
+                            setQuantity(Math.max(t.min_per_order || 1, 1));
+                          }
+                        }}
+                        style={{
+                          background: isSelected ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                          border: isSelected ? '1.5px solid #3B82F6' : '1px solid var(--border-glass)',
+                          borderRadius: '10px',
+                          padding: '10px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justify: 'space-between',
+                          cursor: isSoldOut ? 'not-allowed' : 'pointer',
+                          opacity: isSoldOut ? 0.5 : 1,
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: isSelected ? '#60A5FA' : 'white', display: 'block' }}>
+                            {t.name}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            Limit: {t.min_per_order}-{t.max_per_order} per order
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#34D399', display: 'block' }}>
+                            ₹{t.price}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: isSoldOut ? '#F87171' : t.available_quantity <= 5 ? '#F59E0B' : '#34D399' }}>
+                            {isSoldOut ? 'SOLD OUT' : `${t.available_quantity} left`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Booking Error Banner */}
+            {bookingError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                marginBottom: '16px',
+                fontSize: '0.85rem',
+                color: '#F87171',
+                lineHeight: 1.4
+              }}>
+                {bookingError}
+              </div>
+            )}
+
             {/* Quantity Selector */}
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Select Number of Tickets</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Select Number of Tickets</label>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  (Max allowed: {maxAllowedQty})
+                </span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <button 
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '36px', height: '36px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                  type="button"
+                  onClick={() => setQuantity(Math.max(minAllowedQty, quantity - 1))}
+                  disabled={quantity <= minAllowedQty}
+                  style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '36px', height: '36px', borderRadius: '8px', cursor: quantity <= minAllowedQty ? 'not-allowed' : 'pointer', fontWeight: 700 }}
                 >
                   -
                 </button>
                 <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'white', width: '40px', textAlign: 'center' }}>{quantity}</span>
                 <button 
-                  onClick={() => setQuantity(Math.min(event.available_tickets, quantity + 1))}
-                  style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '36px', height: '36px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+                  type="button"
+                  onClick={() => setQuantity(Math.min(maxAllowedQty, quantity + 1))}
+                  disabled={quantity >= maxAllowedQty || maxAllowedQty === 0}
+                  style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', width: '36px', height: '36px', borderRadius: '8px', cursor: (quantity >= maxAllowedQty || maxAllowedQty === 0) ? 'not-allowed' : 'pointer', fontWeight: 700 }}
                 >
                   +
                 </button>
               </div>
             </div>
+
 
             {/* Coupon Code Section */}
             <div style={{ marginBottom: '20px' }}>
@@ -142,7 +254,6 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
               </div>
             </div>
 
-
             {/* Split Payment Share Link */}
             <div style={{ marginBottom: '20px', background: 'rgba(139, 92, 246, 0.1)', border: '1px border-purple-500', padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.75rem', color: '#C084FC' }}>Group booking? Split payment link:</span>
@@ -161,7 +272,7 @@ export default function BookingModal({ event, onClose, onBookingSuccess }) {
               className="gradient-btn"
               style={{ width: '100%', padding: '14px', justifyContent: 'center', borderRadius: '12px', fontSize: '1rem' }}
             >
-              <CreditCard size={18} /> {loading ? 'Securing Seat & Generating Ticket...' : `Pay ₹${totalAmount.toFixed(0)} Now`}
+              <CreditCard size={18} /> {loading ? 'Preparing secure checkout...' : `Pay ₹${totalAmount.toFixed(0)} Now`}
             </button>
           </div>
         ) : (

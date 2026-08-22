@@ -5,10 +5,27 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from datetime import datetime
 
+def calculate_tax_breakdown(price_paid: float, tax_rate: float = 0.18):
+    """
+    Configurable Tax Calculation Helper.
+    Supports dynamic tax rates (default 18%, split evenly between CGST and SGST).
+    """
+    base_price = round(price_paid / (1.0 + tax_rate), 2)
+    total_tax = round(price_paid - base_price, 2)
+    cgst = round(total_tax / 2.0, 2)
+    sgst = round(total_tax / 2.0, 2)
+    return {
+        "base_price": base_price,
+        "total_tax": total_tax,
+        "cgst": cgst,
+        "sgst": sgst,
+        "rate_percent": int(tax_rate * 100)
+    }
+
 def generate_gst_invoice_pdf(booking_info: dict, output_path: str) -> str:
     """
     Generates a production-grade GST Tax Invoice PDF for ticket bookings in India.
-    Includes SAC Code, GSTIN, CGST/SGST 18% breakdown, and ticket details.
+    Supports configurable SAC codes and dynamic tax rate breakdowns.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     doc = SimpleDocTemplate(output_path, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -20,10 +37,14 @@ def generate_gst_invoice_pdf(booking_info: dict, output_path: str) -> str:
 
     story = []
 
+    sac_code = booking_info.get("sac_code", os.getenv("CONFIGURABLE_SAC_CODE", "998413"))
+    tax_rate = float(booking_info.get("tax_rate", os.getenv("CONFIGURABLE_TAX_RATE", "0.18")))
+    tax_info = calculate_tax_breakdown(float(booking_info.get("price_paid", 100.0)), tax_rate=tax_rate)
+
     # Header
     story.append(Paragraph("TAX INVOICE", title_style))
     story.append(Paragraph("ChatAssist Ticketing Technologies Pvt. Ltd. | GSTIN: 29AAAAA0000A1Z5", subtitle_style))
-    story.append(Paragraph("SAC Code: 998413 (Online Event Ticketing & Registration Services)", subtitle_style))
+    story.append(Paragraph(f"SAC Code: {sac_code} (Online Event Ticketing & Admission Services)", subtitle_style))
     story.append(Spacer(1, 15))
 
     # Invoice Meta
@@ -46,13 +67,11 @@ def generate_gst_invoice_pdf(booking_info: dict, output_path: str) -> str:
 
     # Particulars Table
     total_amount = float(booking_info.get("price_paid", 100.0))
-    base_price = round(total_amount / 1.18, 2)
-    cgst = round((total_amount - base_price) / 2, 2)
-    sgst = round((total_amount - base_price) / 2, 2)
+    half_rate = tax_info["rate_percent"] // 2
 
     item_data = [
-        ["Item Description", "SAC Code", "Base Amount (₹)", "CGST (9%)", "SGST (9%)", "Total (₹)"],
-        [booking_info.get("event_title", "Event Admission Ticket"), "998413", f"₹{base_price:.2f}", f"₹{cgst:.2f}", f"₹{sgst:.2f}", f"₹{total_amount:.2f}"]
+        ["Item Description", "SAC Code", "Base Amount (₹)", f"CGST ({half_rate}%)", f"SGST ({half_rate}%)", "Total (₹)"],
+        [booking_info.get("event_title", "Event Admission Ticket"), sac_code, f"₹{tax_info['base_price']:.2f}", f"₹{tax_info['cgst']:.2f}", f"₹{tax_info['sgst']:.2f}", f"₹{total_amount:.2f}"]
     ]
     
     t_items = Table(item_data, colWidths=[180, 70, 90, 65, 65, 70])

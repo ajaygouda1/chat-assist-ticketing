@@ -4,9 +4,17 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-INTENTS = ["search_event", "book_ticket", "cancel_ticket", "view_tickets", "create_event", "general_chat"]
+INTENTS = ["greeting", "search_event", "book_ticket", "cancel_ticket", "view_tickets", "create_event", "compare_events", "event_faq", "transfer_ticket", "general_chat"]
 
 TRAINING_DATA = [
+    # greeting
+    ("hi", "greeting"),
+    ("hello", "greeting"),
+    ("hey", "greeting"),
+    ("good morning", "greeting"),
+    ("greetings", "greeting"),
+    ("hi there", "greeting"),
+
     # search_event
     ("show me upcoming events in Bangalore", "search_event"),
     ("find music concerts this weekend", "search_event"),
@@ -22,6 +30,12 @@ TRAINING_DATA = [
     ("list all available events", "search_event"),
     ("show upcoming concerts and seminars", "search_event"),
     ("explore live events", "search_event"),
+    ("show tech events", "search_event"),
+    ("find AI events in Bengaluru", "search_event"),
+    ("show events under 1000", "search_event"),
+    ("show workshops this weekend", "search_event"),
+    ("only under 700", "search_event"),
+    ("show live events", "search_event"),
 
     # book_ticket
     ("I want to buy 2 tickets for AI summit", "book_ticket"),
@@ -40,8 +54,13 @@ TRAINING_DATA = [
     ("purchase passes", "book_ticket"),
     ("I need 3 standard passes", "book_ticket"),
     ("can I book seats for AI Summit", "book_ticket"),
+    ("book the first one", "book_ticket"),
+    ("book 2 tickets", "book_ticket"),
+    ("book 3 VIP tickets for the first event", "book_ticket"),
+    ("book VIP", "book_ticket"),
+    ("book this event", "book_ticket"),
 
-    # cancel_ticket
+    # cancel_ticket / refund
     ("cancel my booking for AI summit", "cancel_ticket"),
     ("I want a refund for ticket TCK-1029", "cancel_ticket"),
     ("cancel my ticket and refund money", "cancel_ticket"),
@@ -52,6 +71,12 @@ TRAINING_DATA = [
     ("refund my ticket", "cancel_ticket"),
     ("cancel my pass", "cancel_ticket"),
     ("can I get money back for my ticket", "cancel_ticket"),
+    ("how does refund work", "cancel_ticket"),
+
+    # transfer_ticket
+    ("transfer my ticket", "transfer_ticket"),
+    ("send my ticket to a friend", "transfer_ticket"),
+    ("gift my ticket pass", "transfer_ticket"),
 
     # view_tickets
     ("show my booked tickets", "view_tickets"),
@@ -78,11 +103,23 @@ TRAINING_DATA = [
     ("list a new show", "create_event"),
     ("I want to organize an event", "create_event"),
     ("register a new event as organizer", "create_event"),
+    ("I want to create an event", "create_event"),
+    ("I want to create a tech workshop", "create_event"),
+
+    # compare_events
+    ("compare the first two events", "compare_events"),
+    ("compare events", "compare_events"),
+    ("compare event options", "compare_events"),
+
+    # event_faq
+    ("does it provide certificates?", "event_faq"),
+    ("is food included?", "event_faq"),
+    ("where is the venue?", "event_faq"),
+    ("what time does it start?", "event_faq"),
+    ("can students attend?", "event_faq"),
 
     # general_chat
     ("hello who are you?", "general_chat"),
-    ("hi", "general_chat"),
-    ("hey", "general_chat"),
     ("what is the weather today?", "general_chat"),
     ("tell me a joke", "general_chat"),
     ("how does this platform work?", "general_chat"),
@@ -90,10 +127,7 @@ TRAINING_DATA = [
     ("what can you do?", "general_chat"),
     ("who created you?", "general_chat"),
     ("thank you so much", "general_chat"),
-    ("good morning", "general_chat"),
     ("is this system active?", "general_chat"),
-    ("where is the event venue?", "general_chat"),
-    ("can you explain ticket pricing?", "general_chat"),
     ("how do I scan QR code", "general_chat"),
 ]
 
@@ -114,11 +148,25 @@ class IntentRouter:
     def route_intent(self, message: str, threshold: float = 0.35) -> dict:
         if not self.is_trained:
             self._train_default()
-        
+
+        # Direct exact match helpers for low latency / high reliability
+        msg_clean = (message or "").strip().lower()
+        if msg_clean in ["hi", "hello", "hey", "greetings", "good morning", "hi!"]:
+            return {"intent": "greeting", "confidence": 1.0, "routed_to": "DETERMINISTIC_BACKEND"}
+
+        if any(k in msg_clean for k in ["create event", "create an event", "create a workshop", "organize an event"]):
+            return {"intent": "create_event", "confidence": 0.99, "routed_to": "CREATE_EVENT_ENTRY"}
+
+        if any(k in msg_clean for k in ["show my tickets", "view my tickets", "my tickets"]):
+            return {"intent": "view_tickets", "confidence": 0.99, "routed_to": "DETERMINISTIC_BACKEND"}
+
+        if any(msg_clean.startswith(prefix) for prefix in ["find ", "search ", "show ", "look for ", "explore "]) and not any(k in msg_clean for k in ["ticket", "tickets", "book"]):
+            return {"intent": "search_event", "confidence": 0.95, "routed_to": "DETERMINISTIC_BACKEND"}
+
         X = self.vectorizer.transform([message])
         probs = self.clf.predict_proba(X)[0]
         classes = self.clf.classes_
-        
+
         best_idx = probs.argmax()
         best_intent = classes[best_idx]
         confidence = float(probs[best_idx])
@@ -130,4 +178,5 @@ class IntentRouter:
         return {"intent": best_intent, "confidence": round(confidence, 3), "routed_to": routed_to}
 
 intent_router = IntentRouter()
+
 

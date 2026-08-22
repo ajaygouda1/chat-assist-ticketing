@@ -74,9 +74,22 @@ def confirm_payment(
 
     # 2. Get booking session info
     session = get_booking_session(user_id)
-    event_id = session.event_id or 1
+    event_id = session.event_id
     qty = session.quantity or 1
     unit_price = session.unit_price or 499.0
+
+    if booking_id:
+        from app.models.booking_draft import BookingDraft
+        draft = db.query(BookingDraft).filter(BookingDraft.id == booking_id).first()
+        if draft:
+            event_id = draft.event_id
+            qty = draft.quantity
+            unit_price = draft.unit_price
+
+    if not event_id:
+        ev = db.query(Event).filter(Event.available_tickets > 0).first()
+        event_id = ev.id if ev else 1
+
 
     # Atomic capacity check & update
     rows_updated = db.query(Event).filter(
@@ -92,9 +105,19 @@ def confirm_payment(
 
     ev = db.query(Event).filter(Event.id == event_id).first()
 
+    # Update tier inventory held -> sold
+    from app.services.tier_inventory_service import confirm_tier_inventory_payment
+    confirm_tier_inventory_payment(db, ev.id, getattr(session, "ticket_type", None), qty)
+
+
     ticket_no = f"TCK-{uuid.uuid4().hex[:8].upper()}"
     invoice_no = f"INV-2026-{uuid.uuid4().hex[:6].upper()}"
-    calculated_amount = round((unit_price * qty) * 1.18, 2) # incl GST
+    
+    from decimal import Decimal, ROUND_HALF_UP
+    unit_price_dec = Decimal(str(unit_price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    subtotal_dec = Decimal(str(unit_price_dec * qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    tax_dec = Decimal(str(subtotal_dec * Decimal("0.18"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    calculated_amount = float(subtotal_dec + tax_dec)
 
     ticket = Ticket(
         ticket_number=ticket_no,

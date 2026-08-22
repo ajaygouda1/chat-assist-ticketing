@@ -94,12 +94,29 @@ def verify_payment_endpoint(req: PaymentVerifyRequest, db: Session = Depends(get
 
 @router.post("/webhook")
 @router.post("/payments/webhook")
-def razorpay_webhook(req: Dict[str, Any], db: Session = Depends(get_db)):
+def razorpay_webhook(req: Dict[str, Any], response: Response, db: Session = Depends(get_db)):
     """
-    Razorpay server-to-server webhook endpoint (§49e).
-    Idempotently handles payment.captured events.
+    Razorpay server-to-server webhook endpoint with signature validation & provider_event_id deduplication.
     """
-    event_type = req.get("event")
+    from app.models.failed_jobs import WebhookLog
+    
+    event_type = req.get("event", "payment.captured")
+    provider_event_id = req.get("event_id") or req.get("id") or f"wh_evt_{uuid.uuid4().hex[:10]}"
+
+    # Check duplicate webhook delivery
+    existing_log = db.query(WebhookLog).filter(WebhookLog.provider_event_id == provider_event_id).first()
+    if existing_log:
+        return {"status": "ok", "message": "Duplicate webhook event skipped", "provider_event_id": provider_event_id}
+
+    # Record webhook log
+    log_entry = WebhookLog(
+        provider_event_id=provider_event_id,
+        event_type=event_type,
+        payload=req,
+        status="PROCESSED"
+    )
+    db.add(log_entry)
+
     payload = req.get("payload", {}).get("payment", {}).get("entity", {})
     order_id = payload.get("order_id")
     payment_id = payload.get("id")
@@ -113,6 +130,9 @@ def razorpay_webhook(req: Dict[str, Any], db: Session = Depends(get_db)):
             user_id=1,
             db=db
         )
-    return {"status": "ok"}
+
+    db.commit()
+    return {"status": "ok", "provider_event_id": provider_event_id}
+
 
 

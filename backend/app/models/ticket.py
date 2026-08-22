@@ -22,13 +22,19 @@ class Event(Base):
     available_tickets = Column(Integer, nullable=False, default=100)
     organizer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status = Column(String, default="PUBLISHED")  # DRAFT, PUBLISHED, CANCELLED, PAST
+
+
     image_url = Column(String, nullable=True)
     cancellation_policy = Column(String, default="Standard 24-hour cancellation policy applies.")
     ticket_types = Column(JSON, default=list)
+    max_tickets_per_booking = Column(Integer, default=10, nullable=True)
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
     tags = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    tiers = relationship("TicketTier", back_populates="event", cascade="all, delete-orphan")
+
 
 
 class Ticket(Base):

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Ticket, Bot, ShieldAlert, Cpu, Sparkles, Search, User, LogIn, LogOut, ShieldCheck, Building } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AuthModal from './auth/AuthModal';
+import NotificationCenter from './notifications/NotificationCenter';
 
-export default function Navbar({ activeTab, setActiveTab, toggleCopilot, isCopilotOpen, searchQuery, setSearchQuery, onSemanticSearch }) {
+export default function Navbar({ activeTab, setActiveTab, toggleCopilot, isCopilotOpen, searchQuery, setSearchQuery, onSemanticSearch, onOpenCreateWizard }) {
   const { user, logout } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
+  const [isNotifCenterOpen, setIsNotifCenterOpen] = useState(false);
 
   const openAuth = (mode = 'login') => {
     setAuthModalMode(mode);
@@ -17,82 +19,158 @@ export default function Navbar({ activeTab, setActiveTab, toggleCopilot, isCopil
     <>
       <header className="glass-panel" style={{ margin: '16px 24px', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
         {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} onClick={() => setActiveTab('events')}>
-          <div style={{ background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)', padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Ticket color="white" size={24} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} onClick={() => setActiveTab('chat')}>
+          <div style={{ background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Bot color="white" size={24} />
           </div>
           <div>
             <h1 style={{ fontSize: '1.25rem', fontWeight: 800 }} className="gradient-text">ChatAssist</h1>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>AI-Powered Ticketing & Support</p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Conversational AI Ticketing Engine</p>
           </div>
         </div>
 
         {/* Semantic Search Bar */}
         <form 
-          onSubmit={(e) => { e.preventDefault(); onSemanticSearch(searchQuery); }}
+          onSubmit={(e) => { e.preventDefault(); onSemanticSearch(searchQuery); setActiveTab('chat'); }}
           style={{ flex: 1, maxWidth: '360px', display: 'flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-glass)', borderRadius: '12px', padding: '6px 14px' }}
         >
           <Search size={18} color="var(--text-muted)" style={{ marginRight: '8px' }} />
           <input
             type="text"
-            placeholder="Semantic search: 'chill outdoor concert'..."
+            placeholder="Ask AI or search: 'chill outdoor concert'..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', width: '100%', fontSize: '0.875rem' }}
           />
-          <button type="submit" style={{ background: 'none', border: 'none', color: '#60A5FA', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Vector</button>
+          <button type="submit" style={{ background: 'none', border: 'none', color: '#A78BFA', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Vector</button>
         </form>
 
         {/* Navigation Tabs */}
-        <nav style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Top-Level Create Event Button */}
           <button
-            onClick={() => setActiveTab('events')}
-            style={{ background: activeTab === 'events' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'events' ? '#60A5FA' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}
+            onClick={() => setActiveTab('create-event')}
+
+            style={{
+              background: 'linear-gradient(135deg, #10B981, #059669)',
+              color: 'white',
+              border: 'none',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+            }}
           >
-            Explore Events
+            <Sparkles size={16} /> + Create Event
+          </button>
+
+          <button
+            onClick={() => setActiveTab('chat')}
+            style={{
+              background: activeTab === 'chat' ? 'linear-gradient(135deg, #8B5CF6, #6366F1)' : 'rgba(139, 92, 246, 0.15)',
+              color: activeTab === 'chat' ? 'white' : '#C4B5FD',
+              border: '1px solid rgba(139, 92, 246, 0.4)',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Bot size={16} /> Chat
           </button>
 
           <button
             onClick={() => setActiveTab('my-tickets')}
-            style={{ background: activeTab === 'my-tickets' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'my-tickets' ? '#60A5FA' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}
+            style={{
+              background: activeTab === 'my-tickets' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+              color: activeTab === 'my-tickets' ? '#60A5FA' : 'var(--text-muted)',
+              border: activeTab === 'my-tickets' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.825rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
           >
-            My Tickets & Invoices
+            <Ticket size={16} /> My Tickets
           </button>
 
           <button
-            onClick={() => setActiveTab('organizer-studio')}
-            style={{ background: activeTab === 'organizer-studio' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'organizer-studio' ? '#60A5FA' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}
+            onClick={() => setActiveTab('events')}
+            style={{
+              background: activeTab === 'events' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+              color: activeTab === 'events' ? '#60A5FA' : 'var(--text-muted)',
+              border: activeTab === 'events' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.825rem'
+            }}
           >
-            Organizer Studio
+            Explore
           </button>
 
+
+          {/* Notification Bell */}
           <button
-            onClick={() => setActiveTab('qr-checkin')}
-            style={{ background: activeTab === 'qr-checkin' ? 'rgba(16, 185, 129, 0.2)' : 'transparent', color: activeTab === 'qr-checkin' ? '#34D399' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => setIsNotifCenterOpen(!isNotifCenterOpen)}
+            title="Notifications"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid var(--border-glass)',
+              color: '#F1F5F9',
+              padding: '8px',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative'
+            }}
           >
-            <User flexShrink={0} size={16} /> QR Gate Check-In
+            🔔
           </button>
 
-          <button
-            onClick={() => setActiveTab('super-admin')}
-            style={{ background: activeTab === 'super-admin' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'super-admin' ? '#60A5FA' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}
-          >
-            Super Admin
-          </button>
-
-          <button
-            onClick={() => setActiveTab('concurrency')}
-            style={{ background: activeTab === 'concurrency' ? 'rgba(139, 92, 246, 0.2)' : 'transparent', color: activeTab === 'concurrency' ? '#C084FC' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Cpu size={16} /> Load Test
-          </button>
-
-          <button
-            onClick={() => setActiveTab('fraud')}
-            style={{ background: activeTab === 'fraud' ? 'rgba(239, 68, 68, 0.2)' : 'transparent', color: activeTab === 'fraud' ? '#F87171' : 'var(--text-muted)', border: 'none', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <ShieldAlert size={16} /> Admin Fraud
-          </button>
+          {/* Tools Menu (Organizers & Admins) */}
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <select
+              value={['organizer-studio', 'qr-checkin', 'super-admin', 'concurrency', 'fraud'].includes(activeTab) ? activeTab : ''}
+              onChange={(e) => {
+                if (e.target.value) setActiveTab(e.target.value);
+              }}
+              style={{
+                background: ['organizer-studio', 'qr-checkin', 'super-admin', 'concurrency', 'fraud'].includes(activeTab) ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)',
+                color: ['organizer-studio', 'qr-checkin', 'super-admin', 'concurrency', 'fraud'].includes(activeTab) ? '#34D399' : 'var(--text-muted)',
+                border: '1px solid var(--border-glass)',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                outline: 'none'
+              }}
+            >
+              <option value="" disabled style={{ background: '#0F172A', color: '#94A3B8' }}>🛠️ Platform Tools</option>
+              <option value="organizer-studio" style={{ background: '#0F172A', color: 'white' }}>Organizer Studio</option>
+              <option value="qr-checkin" style={{ background: '#0F172A', color: 'white' }}>QR Gate Check-In</option>
+              <option value="super-admin" style={{ background: '#0F172A', color: 'white' }}>Super Admin</option>
+              <option value="fraud" style={{ background: '#0F172A', color: 'white' }}>Fraud Shield</option>
+              <option value="concurrency" style={{ background: '#0F172A', color: 'white' }}>Concurrency Engine</option>
+            </select>
+          </div>
 
           {/* User Account / Auth Section */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--border-glass)', paddingLeft: '12px', marginLeft: '4px' }}>
@@ -148,18 +226,15 @@ export default function Navbar({ activeTab, setActiveTab, toggleCopilot, isCopil
                 </button>
               </div>
             )}
-
-            {/* AI Copilot Drawer Toggle */}
-            <button
-              onClick={toggleCopilot}
-              className="gradient-btn"
-              style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-            >
-              <Bot size={16} /> Copilot
-            </button>
           </div>
         </nav>
       </header>
+
+      {isNotifCenterOpen && (
+        <div style={{ position: 'fixed', top: '80px', right: '30px', zIndex: 9999 }}>
+          <NotificationCenter onClose={() => setIsNotifCenterOpen(false)} />
+        </div>
+      )}
 
       <AuthModal
         isOpen={isAuthModalOpen}

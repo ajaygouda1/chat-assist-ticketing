@@ -60,3 +60,25 @@ def require_event_owner(
         )
 
     return event
+
+
+def require_roles(allowed_roles: list):
+    """
+    Dependency factory to check if the authenticated user has one of the allowed roles.
+    Super admin is always allowed.
+    """
+    def role_checker(current_user: Optional[User] = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        
+        user_role = (current_user.role or "customer").lower()
+        allowed = [r.lower() for r in allowed_roles] + ["super_admin"]
+        
+        if user_role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: Action requires one of roles {allowed_roles}, but user has role '{user_role}'"
+            )
+        return current_user
+    return role_checker
+

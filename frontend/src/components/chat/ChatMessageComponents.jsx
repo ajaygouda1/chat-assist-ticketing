@@ -1,7 +1,16 @@
 import React, { useState } from 'react';
-import { Ticket, ShieldCheck, Calendar, MapPin, CheckCircle, CreditCard, Sparkles, AlertCircle, ArrowRight, RefreshCw, Wallet, Send } from 'lucide-react';
+import { Ticket, ShieldCheck, Calendar, MapPin, CheckCircle, CreditCard, Sparkles, AlertCircle, ArrowRight, RefreshCw, Wallet, Send, Plus, Minus } from 'lucide-react';
 import axios from 'axios';
 
+export function formatINR(val) {
+  if (val === undefined || val === null || isNaN(val)) return '₹0.00';
+  return Number(val).toLocaleString('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
 
 export function EventCard({ id, title, category, date_str, location, price, available_tickets, image_url, ticket_types, onSelect }) {
   return (
@@ -44,10 +53,10 @@ export function EventCard({ id, title, category, date_str, location, price, avai
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', pt: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <div>
-            <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block' }}>Live Price</span>
-            <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10B981' }}>₹{price}</span>
+            <span style={{ fontSize: '0.7rem', color: '#64748B', display: 'block' }}>From</span>
+            <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10B981' }}>{formatINR(price)}</span>
             <span style={{ fontSize: '0.7rem', color: '#94A3B8', marginLeft: '6px' }}>({available_tickets} seats left)</span>
           </div>
 
@@ -77,7 +86,63 @@ export function EventCard({ id, title, category, date_str, location, price, avai
   );
 }
 
-export function BookingSummaryCard({ event_title, ticket_type, quantity, unit_price, subtotal, tax, total, onConfirm, onCancel }) {
+export function BookingSummaryCard({
+  event_title,
+  ticket_type,
+  quantity,
+  unit_price,
+  subtotal,
+  tax,
+  total,
+  available_seats,
+  available_tickets,
+  seats_available,
+  max_tickets_per_booking,
+  maxTicketsPerBooking,
+  effective_max,
+  onConfirm,
+  onCancel,
+  onSelect
+}) {
+  const currentQty = Number(quantity ?? 1);
+
+  const availableSeats = Number(
+    available_seats ?? available_tickets ?? seats_available ?? 0
+  );
+
+  const configuredMax = Number(
+    max_tickets_per_booking ?? maxTicketsPerBooking ?? 10
+  );
+
+  const effectiveMax = Number(
+    effective_max ?? (
+      Math.max(
+        1,
+        Math.min(
+          configuredMax,
+          availableSeats > 0 ? availableSeats : configuredMax
+        )
+      )
+    )
+  );
+
+  const handleQtyChange = (newQty) => {
+    if (newQty < 1 || newQty > effectiveMax) return;
+    const selectHandler = onSelect || onConfirm;
+    if (selectHandler) {
+      selectHandler(`${newQty} ${ticket_type || 'Standard'} tickets`);
+    }
+  };
+
+  const handleTierSelect = (tierName) => {
+    const selectHandler = onSelect || onConfirm;
+    if (selectHandler) {
+      selectHandler(`${currentQty} ${tierName} tickets`);
+    }
+  };
+
+  const isMaxReached = currentQty >= effectiveMax;
+
   return (
     <div style={{
       background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.9))',
@@ -87,53 +152,148 @@ export function BookingSummaryCard({ event_title, ticket_type, quantity, unit_pr
       marginTop: '10px',
       boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', pb: '8px' }}>
-        <Ticket size={16} color="#3B82F6" />
-        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#F8FAFC', margin: 0 }}>Order Breakdown</h4>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Ticket size={16} color="#3B82F6" />
+          <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#F8FAFC', margin: 0 }}>Booking Summary</h4>
+        </div>
+        <span style={{ fontSize: '0.7rem', color: '#FDE047', background: 'rgba(234, 179, 8, 0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+          ⏱️ Seats held 10m
+        </span>
       </div>
 
-      <p style={{ fontSize: '0.85rem', color: '#E2E8F0', fontWeight: 600, margin: '0 0 10px 0' }}>{event_title}</p>
+      <p style={{ fontSize: '0.88rem', color: '#E2E8F0', fontWeight: 700, margin: '0 0 10px 0' }}>{event_title}</p>
 
+      {/* Tier Selector */}
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ fontSize: '0.72rem', color: '#94A3B8', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Ticket Tier</label>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => handleTierSelect('Standard')}
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              borderRadius: '8px',
+              border: (ticket_type || 'Standard').toLowerCase().includes('standard') ? '1px solid #8B5CF6' : '1px solid rgba(255,255,255,0.1)',
+              background: (ticket_type || 'Standard').toLowerCase().includes('standard') ? 'rgba(139, 92, 246, 0.25)' : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            Standard
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTierSelect('VIP Pass')}
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              borderRadius: '8px',
+              border: (ticket_type || '').toLowerCase().includes('vip') ? '1px solid #EC4899' : '1px solid rgba(255,255,255,0.1)',
+              background: (ticket_type || '').toLowerCase().includes('vip') ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            VIP Pass
+          </button>
+        </div>
+      </div>
+
+      {/* Quantity Stepper */}
+      <div style={{ marginBottom: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15, 23, 42, 0.5)', padding: '8px 12px', borderRadius: '8px' }}>
+          <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600 }}>Quantity</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => handleQtyChange(currentQty - 1)}
+              disabled={currentQty <= 1}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: 'white',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                cursor: currentQty <= 1 ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: currentQty <= 1 ? 0.4 : 1
+              }}
+            >
+              <Minus size={12} />
+            </button>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', minWidth: '16px', textAlign: 'center' }}>
+              {currentQty}
+            </span>
+            <button
+              type="button"
+              onClick={() => handleQtyChange(currentQty + 1)}
+              disabled={isMaxReached}
+              style={{
+                background: isMaxReached ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: 'white',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                cursor: isMaxReached ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: isMaxReached ? 0.4 : 1
+              }}
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+        </div>
+        <span style={{ fontSize: '0.68rem', color: '#64748B', display: 'block', marginTop: '4px', textAlign: 'right' }}>
+          Available: {availableSeats > 0 ? availableSeats : (available_tickets || '400+')} • Max per booking: {effectiveMax}
+        </span>
+      </div>
+
+      {/* Breakdown Details */}
       <div style={{ fontSize: '0.78rem', color: '#94A3B8', display: 'flex', flexDirection: 'column', gap: '5px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Ticket Tier</span>
-          <span style={{ color: '#F1F5F9', fontWeight: 600 }}>{ticket_type}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Quantity</span>
-          <span style={{ color: '#F1F5F9', fontWeight: 600 }}>{quantity} ticket(s)</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Unit Price</span>
-          <span style={{ color: '#F1F5F9' }}>₹{unit_price}</span>
+          <span style={{ color: '#F1F5F9' }}>{formatINR(unit_price)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Subtotal</span>
-          <span style={{ color: '#F1F5F9' }}>₹{subtotal}</span>
+          <span style={{ color: '#F1F5F9' }}>{formatINR(subtotal)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>GST (18%)</span>
-          <span style={{ color: '#F1F5F9' }}>₹{tax}</span>
+          <span style={{ color: '#F1F5F9' }}>{formatINR(tax)}</span>
         </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed rgba(255, 255, 255, 0.15)' }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#F8FAFC' }}>Total Amount</span>
-        <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#10B981' }}>₹{total}</span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#F8FAFC' }}>Total</span>
+        <span style={{ fontSize: '1.15rem', fontWeight: 800, color: '#10B981' }}>{formatINR(total)}</span>
       </div>
 
       {onConfirm && (
         <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
           <button
+            type="button"
             onClick={() => onConfirm("Confirm booking")}
             style={{
               flex: 1,
               background: 'linear-gradient(135deg, #10B981, #059669)',
               border: 'none',
               color: 'white',
-              padding: '8px',
+              padding: '10px',
               borderRadius: '8px',
-              fontSize: '0.8rem',
+              fontSize: '0.82rem',
               fontWeight: 700,
               cursor: 'pointer'
             }}
@@ -141,14 +301,15 @@ export function BookingSummaryCard({ event_title, ticket_type, quantity, unit_pr
             ✅ Confirm & Pay
           </button>
           <button
+            type="button"
             onClick={() => onCancel ? onCancel("Cancel booking") : null}
             style={{
               background: 'rgba(255, 255, 255, 0.08)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               color: '#94A3B8',
-              padding: '8px 12px',
+              padding: '10px 14px',
               borderRadius: '8px',
-              fontSize: '0.8rem',
+              fontSize: '0.82rem',
               cursor: 'pointer'
             }}
           >
@@ -166,12 +327,11 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
   const [errorMsg, setErrorMsg] = useState('');
 
   const initiatePayment = () => {
-    // Check if Razorpay SDK script is loaded in window
     if (window.Razorpay && import.meta.env.VITE_RAZORPAY_KEY_ID) {
       try {
         const options = {
           key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-          amount: amount || total_inr * 100,
+          amount: amount || Math.round((total_inr || 499) * 100),
           currency: 'INR',
           name: 'ChatAssist Ticketing',
           description: `Booking for ${event_title}`,
@@ -194,7 +354,6 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
         console.warn("Razorpay window fail, opening modal simulation", err);
       }
     }
-    // Fallback: Open interactive direct payment simulation modal
     setShowSimModal(true);
   };
 
@@ -247,7 +406,7 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
         }}
       >
         <CreditCard size={18} />
-        {processing ? 'Verifying Payment...' : `Pay ₹${total_inr || (amount ? amount / 100 : 499)} Securely`}
+        {processing ? 'Verifying Payment...' : `✅ Pay ${formatINR(total_inr || (amount ? amount / 100 : 499))}`}
       </button>
 
       {/* Interactive In-Chat Payment Simulation Modal */}
@@ -282,7 +441,7 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
               </div>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>Secure Razorpay Checkout</h3>
-                <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>ChatAssist Encrypted Concurrency Gateway</span>
+                <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>ChatAssist Gateway</span>
               </div>
             </div>
 
@@ -295,9 +454,9 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
                 <span style={{ color: '#94A3B8' }}>Pass Type</span>
                 <span>{quantity}x {ticket_type}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', pt: '6px', marginTop: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '6px', marginTop: '6px' }}>
                 <span style={{ fontWeight: 700 }}>Total Payable</span>
-                <span style={{ color: '#10B981', fontWeight: 800, fontSize: '1rem' }}>₹{total_inr}</span>
+                <span style={{ color: '#10B981', fontWeight: 800, fontSize: '1rem' }}>{formatINR(total_inr)}</span>
               </div>
             </div>
 
@@ -355,7 +514,6 @@ export function PaymentButton({ order_id, amount, booking_id, event_title, quant
 }
 
 export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, price_paid, invoice_number, qr_code_url, date_str, location }) {
-
   const [showTransfer, setShowTransfer] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState('');
   const [transferMsg, setTransferMsg] = useState('');
@@ -416,7 +574,6 @@ export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, 
         </div>
       )}
 
-      {/* Section 57a & 57d Action Buttons */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
         <a 
           href={`https://pay.google.com/gp/v/save/chatassist_ticket_${ticket_id || ticket_number}`}
@@ -448,14 +605,13 @@ export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, 
         </button>
       </div>
 
-      {/* Section 57d Transfer Ticket Drawer/Modal */}
       {showTransfer && (
         <div style={{ background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(139, 92, 246, 0.4)', padding: '12px', borderRadius: '10px', marginBottom: '12px' }}>
           <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'white', display: 'block', marginBottom: '6px' }}>
             🎁 Gift / Transfer Ticket to Friend
           </span>
           <p style={{ fontSize: '0.7rem', color: '#94A3B8', margin: '0 0 8px 0' }}>
-            Enter recipient's email. Note: Re-signs HMAC token — previous QR code screenshot will immediately be invalidated (§57d).
+            Enter recipient's email. Note: Re-signs HMAC token.
           </p>
 
           {transferMsg && (
@@ -492,7 +648,7 @@ export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, 
       <div className="ticket-seam" />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--paper)' }}>
-        <span>Paid: <strong className="font-mono-data" style={{ color: 'var(--gold)' }}>₹{price_paid ? price_paid.toFixed(0) : '499'}</strong></span>
+        <span>Paid: <strong className="font-mono-data" style={{ color: 'var(--gold)' }}>{formatINR(price_paid || 499)}</strong></span>
         {invoice_number && (
           <a
             href={`/api/v1/invoices/${invoice_number}`}
@@ -507,8 +663,6 @@ export function TicketConfirmationCard({ ticket_id, ticket_number, event_title, 
     </div>
   );
 }
-
-
 
 export function QuickReplyButtons({ quick_replies, onSelect }) {
   if (!quick_replies || quick_replies.length === 0) return null;
@@ -537,3 +691,270 @@ export function QuickReplyButtons({ quick_replies, onSelect }) {
     </div>
   );
 }
+
+export function EventCarouselCard({ events, onSelectEvent }) {
+  if (!events || events.length === 0) return null;
+  return (
+    <div style={{
+      display: 'flex',
+      gap: '12px',
+      overflowX: 'auto',
+      paddingBottom: '8px',
+      marginTop: '12px',
+      scrollBehavior: 'smooth'
+    }}>
+      {events.map((ev, idx) => (
+        <div key={ev.id || idx} style={{
+          minWidth: '240px',
+          maxWidth: '260px',
+          background: 'linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9))',
+          border: '1px solid rgba(139, 92, 246, 0.3)',
+          borderRadius: '12px',
+          padding: '12px',
+          flexShrink: 0,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{ fontSize: '0.7rem', color: '#A78BFA', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>
+            {ev.category || 'Event'}
+          </div>
+          <h4 style={{ color: '#F8FAFC', fontSize: '0.9rem', fontWeight: 700, margin: '0 0 6px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {ev.title}
+          </h4>
+          <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span>📅 {ev.date_str || 'Upcoming'}</span>
+            <span>📍 {ev.location || 'Bengaluru'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div>
+              <span style={{ fontSize: '0.65rem', color: '#64748B', display: 'block' }}>From</span>
+              <span style={{ fontSize: '1rem', fontWeight: 800, color: '#10B981' }}>{formatINR(ev.price)}</span>
+            </div>
+            <button
+              onClick={() => onSelectEvent && onSelectEvent(`Book tickets for ${ev.title}`)}
+              style={{
+                background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
+                border: 'none',
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Book Now
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function MyTicketsListCard({ tickets, onSelectTicket }) {
+  if (!tickets || tickets.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+      {tickets.map((t, idx) => (
+        <div key={idx} style={{
+          background: 'rgba(30, 41, 59, 0.8)',
+          border: '1px solid rgba(139, 92, 246, 0.3)',
+          borderRadius: '12px',
+          padding: '12px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <span style={{ fontSize: '0.7rem', color: '#A78BFA', fontWeight: 600 }}>{t.ticket_number}</span>
+            <h4 style={{ margin: '2px 0', fontSize: '0.9rem', color: 'white' }}>{t.event_title}</h4>
+            <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>{t.date_str} • {t.location}</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10B981', display: 'block' }}>{formatINR(t.price_paid)}</span>
+            <span style={{ fontSize: '0.68rem', color: '#34D399', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+              {t.status}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CreateEventEntryCard({ category, event_type, title, city, date_str, onStartSetup }) {
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98))',
+      border: '1px solid rgba(139, 92, 246, 0.4)',
+      borderRadius: '16px',
+      padding: '20px',
+      marginTop: '10px',
+      boxShadow: '0 8px 24px rgba(139, 92, 246, 0.15)',
+      maxWidth: '480px'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+        <div style={{ background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', padding: '10px', borderRadius: '12px' }}>
+          <Sparkles size={20} color="white" />
+        </div>
+        <div>
+          <h4 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', margin: 0 }}>Create Your Event</h4>
+          <p style={{ fontSize: '0.88rem', color: '#A78BFA', margin: '4px 0 0 0', fontWeight: 700 }}>
+            Organizer Setup
+          </p>
+        </div>
+      </div>
+
+      <p style={{ fontSize: '0.9rem', color: '#94A3B8', marginBottom: '18px', lineHeight: 1.5 }}>
+        Sure — create your event using the event setup form.
+      </p>
+
+      <button
+        onClick={() => onStartSetup && onStartSetup({ category: category || 'Technology', event_type: event_type || 'Workshop', title, city, date_str })}
+        style={{
+          width: '100%',
+          background: 'linear-gradient(135deg, #10B981, #059669)',
+          border: 'none',
+          color: 'white',
+          padding: '12px',
+          borderRadius: '12px',
+          fontSize: '0.95rem',
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          boxShadow: '0 4px 16px rgba(16, 185, 129, 0.3)',
+          minHeight: '44px'
+        }}
+      >
+        <Sparkles size={16} /> Create Event
+      </button>
+    </div>
+  );
+}
+
+export function WelcomeScreenCard({ onQuickAction }) {
+
+  const actions = [
+    { title: 'Book Tickets', desc: 'Search & buy event passes', icon: '🎫', prompt: 'Show upcoming events in Bangalore' },
+    { title: 'Find Events', desc: 'Explore tech, music & workshops', icon: '🔎', prompt: 'Show me music concerts this weekend' },
+    { title: 'My Tickets', desc: 'View QR passes & PDF invoices', icon: '🎟️', prompt: 'Show my booked tickets' },
+    { title: 'Create Event', desc: 'AI-assisted event publishing', icon: '🎤', prompt: 'I want to create a tech workshop event' }
+  ];
+
+  return (
+    <div style={{
+      textAlign: 'center',
+      padding: '36px 28px',
+      maxWidth: '640px',
+      margin: '24px auto',
+      background: 'rgba(15, 23, 42, 0.5)',
+      border: '1px solid rgba(139, 92, 246, 0.25)',
+      borderRadius: '24px',
+      backdropFilter: 'blur(12px)'
+    }}>
+      <div style={{ fontSize: '3rem', marginBottom: '14px' }}>🤖</div>
+      <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#F8FAFC', margin: '0 0 10px 0' }}>
+        Welcome to ChatAssist
+      </h2>
+      <p style={{ fontSize: '0.95rem', color: '#94A3B8', margin: '0 0 28px 0', lineHeight: 1.6 }}>
+        Your AI conversational assistant for event discovery, ticket bookings, instant QR passes, and organizer management.
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+        {actions.map((act, idx) => (
+          <button
+            key={idx}
+            onClick={() => onQuickAction(act.prompt)}
+            style={{
+              background: 'rgba(30, 41, 59, 0.7)',
+              border: '1px solid rgba(139, 92, 246, 0.25)',
+              borderRadius: '16px',
+              padding: '16px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              minHeight: '80px'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.borderColor = '#8B5CF6'}
+            onMouseOut={(e) => e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.25)'}
+          >
+            <span style={{ fontSize: '1.6rem' }}>{act.icon}</span>
+            <span style={{ color: '#F1F5F9', fontWeight: 700, fontSize: '0.95rem' }}>{act.title}</span>
+            <span style={{ color: '#64748B', fontSize: '0.8rem' }}>{act.desc}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function CancellationCard({ ticket_number, event_title, price_paid, onConfirmCancel }) {
+  const [cancelling, setCancelling] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      if (onConfirmCancel) {
+        await onConfirmCancel(`Confirm cancellation of ticket ${ticket_number}`);
+      }
+      setDone(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  return (
+    <div style={{
+      background: 'rgba(30, 41, 59, 0.9)',
+      border: '1px solid rgba(239, 68, 68, 0.4)',
+      borderRadius: '14px',
+      padding: '18px',
+      marginTop: '10px',
+      color: 'white'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#F87171', fontWeight: 700, fontSize: '0.95rem' }}>
+        <AlertCircle size={18} /> Cancellation & Refund Request
+      </div>
+      <p style={{ fontSize: '0.88rem', color: '#E2E8F0', margin: '0 0 12px 0' }}>
+        Ticket <strong>{ticket_number}</strong> for <em>{event_title || 'Event'}</em> ({formatINR(price_paid)}) is eligible for a 100% full refund under standard cancellation policy.
+      </p>
+
+      {!done ? (
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={handleCancel}
+            disabled={cancelling}
+            style={{
+              background: '#EF4444',
+              border: 'none',
+              color: 'white',
+              padding: '10px 16px',
+              borderRadius: '10px',
+              fontWeight: 700,
+              fontSize: '0.88rem',
+              minHeight: '40px',
+              cursor: cancelling ? 'wait' : 'pointer'
+            }}
+          >
+            {cancelling ? 'Processing Refund...' : 'Confirm Cancellation'}
+          </button>
+        </div>
+      ) : (
+        <div style={{ color: '#10B981', fontWeight: 700, fontSize: '0.88rem' }}>
+          ✅ Cancellation processed successfully! Refund credited.
+        </div>
+      )}
+    </div>
+  );
+}
+
+

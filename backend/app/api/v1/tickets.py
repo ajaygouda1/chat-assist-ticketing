@@ -67,6 +67,11 @@ def create_event(event_in: EventCreate, organizer_id: int = 1, db: Session = Dep
     db.add(ev)
     db.commit()
     db.refresh(ev)
+
+    if event_in.ticket_types:
+        from app.services.tier_inventory_service import create_or_update_event_tiers
+        create_or_update_event_tiers(db, ev, event_in.ticket_types)
+
     return ev
 
 @router.put("/events/{event_id}", response_model=EventResponse)
@@ -83,9 +88,14 @@ def update_event(event_id: int, event_in: EventUpdate, db: Session = Depends(get
         tickets_sold = db.query(Ticket).filter(Ticket.event_id == event_id, Ticket.status != "CANCELLED").count()
         ev.available_tickets = max(0, ev.total_capacity - tickets_sold)
 
+    if "ticket_types" in update_data and update_data["ticket_types"]:
+        from app.services.tier_inventory_service import create_or_update_event_tiers
+        create_or_update_event_tiers(db, ev, update_data["ticket_types"])
+
     db.commit()
     db.refresh(ev)
     return ev
+
 
 @router.post("/events/{event_id}/publish")
 def publish_event(event_id: int, db: Session = Depends(get_db), owner_check: Event = Depends(require_event_owner)):
@@ -389,17 +399,18 @@ def verify_ticket(
             "event_title": ev.title if ev else ""
         }
 
-    if status_upper == "CANCELLED":
-        scan_log.result = "CANCELLED"
+    if status_upper in ["CANCELLED", "REFUNDED", "TRANSFERRED"]:
+        scan_log.result = status_upper
         db.add(scan_log)
         db.commit()
         return {
             "valid": False,
-            "status": "CANCELLED",
-            "message": "❌ Ticket Cancelled and Refunded",
+            "status": "CANCELLED_OR_REFUNDED",
+            "message": f"❌ Ticket Invalid ({status_upper})",
             "ticket": {"id": ticket.id, "ticket_number": ticket.ticket_number, "status": ticket.status},
             "event_title": ev.title if ev else ""
         }
+
 
     scan_log.result = "VALID"
     db.add(scan_log)
