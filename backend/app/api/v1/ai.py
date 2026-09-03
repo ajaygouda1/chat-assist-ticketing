@@ -7,6 +7,7 @@ from app.schemas.schemas import ChatRequest, ChatResponse
 from app.services.openai_service import ai_service
 from app.models.customer import ChatMessage
 from app.models.conversation import Conversation, ConversationMessage
+from app.ai.agent import chat_agent
 
 router = APIRouter()
 
@@ -26,16 +27,44 @@ def chat_copilot(req: ChatRequest, user_id: int = 1, db: Session = Depends(get_d
         db.commit()
         db.refresh(conv)
 
-    # Process AI message logic with event_type and payload
-    res = ai_service.process_chat_message(
-        message=req.message or "",
-        user_id=active_user_id,
-        db=db,
-        event_type=req.event_type or "user_message",
-        payload=req.payload,
-        conversation_id=conv.id
-    )
-    res["conversation_id"] = conv.id
+    # Process system payment verification event via deterministic handler
+    if req.event_type == "system_event" or (req.payload and req.payload.get("event") == "PAYMENT_VERIFIED"):
+        res = ai_service.process_chat_message(
+            message=req.message or "",
+            user_id=active_user_id,
+            db=db,
+            event_type=req.event_type or "system_event",
+            payload=req.payload,
+            conversation_id=conv.id
+        )
+        res["conversation_id"] = conv.id
+    else:
+        # Primary AI-First Agent Processing
+        agent_resp = chat_agent.process_message(
+            user_message=req.message or "",
+            user_id=active_user_id,
+            conversation_id=conv.id,
+            db=db,
+            user_role="customer",
+            event_type=req.event_type or "user_message",
+            payload=req.payload
+        )
+
+        res = {
+            "reply": agent_resp.reply,
+            "message": agent_resp.message,
+            "message_id": agent_resp.message_id,
+            "intent": agent_resp.intent or "ai_agent",
+            "confidence": 0.99,
+            "routed_to": "AI_AGENT",
+            "grounding_status": agent_resp.grounding_status,
+            "type": agent_resp.type,
+            "payload": agent_resp.payload,
+            "quick_replies": agent_resp.quick_replies,
+            "conversation_id": conv.id,
+            "ui": [u.model_dump() for u in agent_resp.ui],
+            "state": agent_resp.state
+        }
 
     # Update conversation title if default title
     if conv.title in ["New Chat", "New Conversation"] and req.message:
@@ -64,7 +93,9 @@ def chat_copilot(req: ChatRequest, user_id: int = 1, db: Session = Depends(get_d
             "routed_to": res.get("routed_to"),
             "grounding_status": res.get("grounding_status"),
             "payload": res.get("payload"),
-            "quick_replies": res.get("quick_replies")
+            "quick_replies": res.get("quick_replies"),
+            "ui": res.get("ui"),
+            "state": res.get("state")
         }
     )
     db.add(msg_bot)

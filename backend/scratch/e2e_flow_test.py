@@ -19,7 +19,8 @@ import pytest
 async def test_full_e2e_flow():
     print("==========================================")
     print("STARTING CHATASSIST E2E WORKFLOW VERIFICATION")
-    print("==========================================")
+    from app.seed_demo import seed_demo_data
+    seed_demo_data()
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

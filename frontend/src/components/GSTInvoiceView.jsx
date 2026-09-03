@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Ticket, Download, CheckCircle2, ArrowRight, Send, RefreshCw, Smartphone } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import EventDayPassModal from './tickets/EventDayPassModal';
 import TransferTicketModal from './tickets/TransferTicketModal';
@@ -96,15 +97,18 @@ export default function GSTInvoiceView({ onNavigateToChat }) {
                   {t.location} • {t.date_str}
                 </p>
 
-                {/* QR Code Pass Display */}
-                {t.qr_data_url && (
-                  <div style={{ background: '#FFFFFF', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '16px', boxShadow: '0 6px 18px rgba(0,0,0,0.3)' }}>
-                    <img src={t.qr_data_url} alt={`QR Pass for ${t.ticket_number}`} style={{ width: '150px', height: '150px' }} />
-                    <span className="font-mono-data" style={{ fontSize: '0.65rem', color: '#151316', fontWeight: 800, marginTop: '8px', letterSpacing: '0.5px' }}>
-                      HMAC SIGNED GATE PASS
-                    </span>
-                  </div>
-                )}
+                {/* Real Scannable Vector SVG QR Code */}
+                <div style={{ background: '#FFFFFF', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '16px', boxShadow: '0 6px 18px rgba(0,0,0,0.3)' }}>
+                  <QRCodeSVG
+                    value={t.qr_token || t.ticket_number || String(t.id)}
+                    size={150}
+                    level="H"
+                    includeMargin={true}
+                  />
+                  <span className="font-mono-data" style={{ fontSize: '0.68rem', color: '#151316', fontWeight: 800, marginTop: '8px', letterSpacing: '0.5px' }}>
+                    HMAC SIGNED GATE PASS
+                  </span>
+                </div>
 
                 {/* Action Buttons for Ticket Management */}
                 {t.status === 'CONFIRMED' && (

@@ -162,6 +162,10 @@ class ChatResponse(BaseModel):
     payload: Optional[Dict[str, Any]] = None
     quick_replies: Optional[List[Dict[str, str]]] = None
     conversation_id: Optional[int] = None
+    message: Optional[str] = None
+    message_id: Optional[str] = None
+    ui: Optional[List[Dict[str, Any]]] = None
+    state: Optional[Dict[str, Any]] = None
 
 class PaymentOrderRequest(BaseModel):
     event_id: int

@@ -56,7 +56,7 @@ def confirm_payment(
     if existing_payment:
         existing_tickets = db.query(Ticket).filter(
             Ticket.user_id == existing_payment.user_id
-        ).order_by(Ticket.id.desc()).all()
+        ).order_by(Ticket.id.asc()).all()
 
         ev = None
         if existing_tickets:
@@ -76,6 +76,11 @@ def confirm_payment(
             })
 
         first_t = ticket_list[0] if ticket_list else {}
+        if existing_payment.ticket_id:
+            matching = [t for t in ticket_list if t["id"] == existing_payment.ticket_id]
+            if matching:
+                first_t = matching[0]
+
         return {
             "status": "ALREADY_CONFIRMED",
             "message": "Payment was already confirmed.",

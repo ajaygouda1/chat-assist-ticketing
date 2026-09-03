@@ -16,6 +16,9 @@ class Settings:
     FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
     
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini").lower()
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    AI_MODEL: str = os.getenv("AI_MODEL", "")
     QR_SIGNING_SECRET: str = os.getenv("QR_SIGNING_SECRET", os.getenv("SECRET_KEY", "super-secret-key-chatassist-2026"))
     
     RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "rzp_test_mockkey123")

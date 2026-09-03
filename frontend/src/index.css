@@ -1,27 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-  --ink: #151316;        /* background — warm near-black, not navy (§55b) */
-  --surface: #1f1c21;    /* cards, panels */
-  --gold: #e8a33d;       /* primary accent — marquee/spotlight */
-  --stub-red: #c1443c;   /* urgency, cancel/error states */
-  --paper: #f5f0e8;      /* primary text — warm off-white */
-  --muted: #9c958c;      /* secondary text */
+  /* Calm Modern Design Tokens */
+  --bg-primary: #111111;
+  --bg-surface: #181818;
+  --bg-surface-hover: #222222;
+  --border: #292929;
+  --border-light: rgba(255, 255, 255, 0.08);
 
-  --bg-dark: #151316;
-  --bg-card: rgba(31, 28, 33, 0.85);
-  --bg-card-hover: rgba(42, 38, 45, 0.9);
-  --border-glass: rgba(232, 163, 61, 0.18);
-  --accent-blue: #3B82F6;
-  --accent-cyan: #06B6D4;
-  --accent-purple: #8B5CF6;
-  --accent-gold: #e8a33d;
-  --accent-emerald: #10B981;
-  --text-main: #f5f0e8;
-  --text-muted: #9c958c;
+  --text-primary: #F5F5F5;
+  --text-secondary: #A3A3A3;
+  --text-muted: #737373;
 
-  --font-display: 'Bebas Neue', 'Space Grotesk', sans-serif;
-  --font-sans: 'Inter', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-heading: 'Bebas Neue', sans-serif;
+  --accent: #6C5CE7;
+  --accent-hover: #5A4BD1;
+  --accent-soft: rgba(108, 92, 231, 0.12);
+
+  --danger: #EF4444;
+  --danger-soft: rgba(239, 68, 68, 0.12);
+  --success: #10B981;
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --warning: #F59E0B;
+
+  /* Legacy variable bridges */
+  --ink: #111111;
+  --surface: #181818;
+  --paper: #F5F5F5;
+  --muted: #A3A3A3;
+  --bg-dark: #111111;
+  --bg-card: #181818;
+  --border-glass: #292929;
+
+  /* Radii */
+  --radius-composer: 20px;
+  --radius-card: 14px;
+  --radius-btn: 10px;
+  --radius-chip: 8px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 * {
@@ -31,191 +48,69 @@
 }
 
 body {
-  background-color: var(--ink);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(232, 163, 61, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(193, 68, 60, 0.06) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(31, 28, 33, 0.9) 0px, transparent 50%);
-  background-attachment: fixed;
-  color: var(--paper);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--font-sans);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  overflow-x: hidden;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-  letter-spacing: 0.03em;
-}
-
-/* Monospace serial numbers & prices (§55b) */
-.font-mono-data {
-  font-family: var(--font-mono);
-  letter-spacing: 0.05em;
-}
-
-.font-display-title {
-  font-family: var(--font-display);
-  letter-spacing: 0.04em;
-}
-
-/* Glassmorphism panel styling */
-.glass-panel {
-  background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-glass);
-  border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-
-/* Signature Element — Die-Cut Ticket Stub Card (§55b) */
-.ticket-stub {
-  background: var(--surface);
-  border: 1px dashed rgba(232, 163, 61, 0.3);
-  border-radius: 12px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.ticket-stub:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(232, 163, 61, 0.2);
-}
-
-.ticket-stub::before, .ticket-stub::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 20px;
-  height: 20px;
-  background-color: var(--ink);
-  border-radius: 50%;
-  transform: translateY(-50%);
-  z-index: 5;
-}
-
-.ticket-stub::before {
-  left: -10px;
-  border-right: 1px solid rgba(232, 163, 61, 0.3);
-}
-
-.ticket-stub::after {
-  right: -10px;
-  border-left: 1px solid rgba(232, 163, 61, 0.3);
-}
-
-.ticket-seam {
-  border-top: 2px dashed rgba(156, 149, 140, 0.3);
-  margin: 12px 0;
-}
-
-/* Gold Gradient & Buttons */
-.gradient-text {
-  background: linear-gradient(135deg, #e8a33d 0%, #f5f0e8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.gradient-btn {
-  background: linear-gradient(135deg, #e8a33d 0%, #c1443c 100%);
-  color: #151316;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 10px;
+  font-family: var(--font-sans);
   font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  box-shadow: 0 4px 14px 0 rgba(232, 163, 61, 0.35);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
-.gradient-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px 0 rgba(232, 163, 61, 0.5);
-  opacity: 0.95;
-}
-
-/* Badges */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.badge-gold {
-  background: rgba(232, 163, 61, 0.15);
-  color: var(--gold);
-  border: 1px solid var(--gold);
-}
-
-.badge-urgency {
-  background: rgba(193, 68, 60, 0.2);
-  color: #F87171;
-  border: 1px solid var(--stub-red);
-}
-
-.badge-intent {
-  background: rgba(139, 92, 246, 0.2);
-  color: #C084FC;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
-
-.badge-grounded {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34D399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.badge-anomaly {
-  background: rgba(193, 68, 60, 0.2);
-  color: #F87171;
-  border: 1px solid var(--stub-red);
-}
-
-/* Accessibility Quality Floor (§55d) */
-:focus-visible {
-  outline: 2px solid var(--gold) !important;
-  outline-offset: 2px !important;
-}
-
-@keyframes ticketStamp {
-  0% { transform: scale(0.9) rotate(-3deg); opacity: 0; }
-  100% { transform: scale(1) rotate(0deg); opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  *, ::before, ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* Scrollbar */
+/* Custom Minimal Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: rgba(21, 19, 22, 0.8);
+  background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(232, 163, 61, 0.3);
-  border-radius: 3px;
+  background: #2A2A2A;
+  border-radius: 999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(232, 163, 61, 0.6);
+  background: #3A3A3A;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out forwards;
+}
+
+@keyframes pulseSubtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 1.8s ease-in-out infinite;
+}
+
+/* Micro-transition helper */
+button, input, textarea, a {
+  transition: all 180ms ease;
+}
+
+/* Glass panel fallback */
+.glass-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
 }

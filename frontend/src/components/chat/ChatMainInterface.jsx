@@ -1,49 +1,61 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, Plus, Trash2, MessageSquare, Sparkles, ShieldCheck, Calendar, MapPin, Ticket, Mic, X, ChevronRight, RefreshCw } from 'lucide-react';
-import axios from 'axios';
+import { Send, Plus, Trash2, Mic, ArrowUp, Sparkles, MessageSquare, ChevronLeft } from 'lucide-react';
+import {
+  sendChatMessage,
+  fetchConversations as apiFetchConversations,
+  createConversation as apiCreateConversation,
+  fetchConversationMessages as apiFetchConversationMessages,
+  deleteConversation as apiDeleteConversation
+} from '../../api/chat';
 import {
   EventCard,
+  EventCarouselCard,
   BookingSummaryCard,
   PaymentButton,
   TicketConfirmationCard,
-  QuickReplyButtons,
-  EventCarouselCard,
-  WelcomeScreenCard,
   MyTicketsListCard,
+  ComparisonCard,
   CancellationCard,
-  CreateEventEntryCard
+  EmptyStateHero
 } from './ChatMessageComponents';
 
-export default function ChatMainInterface({ initialEvent, onSelectEventForBooking, onOpenCreateWizard }) {
-
+export default function ChatMainInterface({
+  initialEvent,
+  initialPrompt,
+  onClearInitialPrompt,
+  isSidebarOpen = true,
+  onToggleSidebar,
+  onOpenCreateEvent
+}) {
   const [conversations, setConversations] = useState([]);
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [contextEvent, setContextEvent] = useState(initialEvent || null);
+  const [toolStatus, setToolStatus] = useState(null);
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
 
-  // Load user conversation sessions on mount
+  // Fetch conversations on mount
   useEffect(() => {
     fetchConversations();
   }, []);
 
-  // Handle initial event passed from Explore view
+  // Handle incoming initial prompt from Explore page
   useEffect(() => {
-    if (initialEvent) {
-      setContextEvent(initialEvent);
-      sendMessage(`Book tickets for ${initialEvent.title || initialEvent.event_title}`);
+    if (initialPrompt) {
+      sendMessage(initialPrompt);
+      if (onClearInitialPrompt) onClearInitialPrompt();
     }
-  }, [initialEvent]);
+  }, [initialPrompt]);
 
-  // Scroll to bottom whenever messages update
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, toolStatus]);
 
-  // Load messages when active conversation changes
+  // Load messages on active conversation change
   useEffect(() => {
     if (activeConvId) {
       fetchMessages(activeConvId);
@@ -54,48 +66,47 @@ export default function ChatMainInterface({ initialEvent, onSelectEventForBookin
 
   const fetchConversations = async () => {
     try {
-      const res = await axios.get('/api/v1/chat/conversations');
-      setConversations(res.data);
-      if (res.data.length > 0 && !activeConvId) {
-        setActiveConvId(res.data[0].id);
+      const data = await apiFetchConversations();
+      setConversations(data);
+      if (data.length > 0 && !activeConvId) {
+        setActiveConvId(data[0].id);
       }
     } catch (err) {
-      console.error("Error fetching conversations", err);
+      console.error('Error fetching conversations:', err);
     }
   };
 
   const fetchMessages = async (convId) => {
     try {
-      const res = await axios.get(`/api/v1/chat/conversations/${convId}/messages`);
-      setMessages(res.data);
+      const data = await apiFetchConversationMessages(convId);
+      setMessages(data);
     } catch (err) {
-      console.error("Error fetching conversation messages", err);
+      console.error('Error fetching conversation messages:', err);
     }
   };
 
   const createNewChat = async () => {
     try {
-      const res = await axios.post('/api/v1/chat/conversations', { title: 'New Chat' });
-      setConversations(prev => [res.data, ...prev]);
-      setActiveConvId(res.data.id);
+      const data = await apiCreateConversation('New Chat');
+      setConversations(prev => [data, ...prev]);
+      setActiveConvId(data.id);
       setMessages([]);
-      setContextEvent(null);
     } catch (err) {
-      console.error("Error creating new chat", err);
+      console.error('Error creating new chat:', err);
     }
   };
 
   const deleteChat = async (e, convId) => {
     e.stopPropagation();
     try {
-      await axios.delete(`/api/v1/chat/conversations/${convId}`);
+      await apiDeleteConversation(convId);
       const updated = conversations.filter(c => c.id !== convId);
       setConversations(updated);
       if (activeConvId === convId) {
         setActiveConvId(updated.length > 0 ? updated[0].id : null);
       }
     } catch (err) {
-      console.error("Error deleting conversation", err);
+      console.error('Error deleting chat:', err);
     }
   };
 
@@ -106,55 +117,69 @@ export default function ChatMainInterface({ initialEvent, onSelectEventForBookin
     const userMsg = { sender: 'user', text: query, type: 'text', id: Date.now() };
     setMessages(prev => [...prev, userMsg]);
     if (!textToSend) setInput('');
+
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
     setLoading(true);
 
+    // Dynamic subtle tool status feedback
+    const qLower = query.toLowerCase();
+    if (qLower.includes('book') || qLower.includes('vip') || qLower.includes('ticket')) {
+      setToolStatus('Holding your tickets…');
+    } else if (qLower.includes('pay') || qLower.includes('proceed') || qLower.includes('confirm')) {
+      setToolStatus('Preparing payment order…');
+    } else if (qLower.includes('compare')) {
+      setToolStatus('Comparing event details…');
+    } else if (qLower.includes('event') || qLower.includes('find') || qLower.includes('show')) {
+      setToolStatus('Searching events…');
+    } else {
+      setToolStatus('Thinking…');
+    }
+
     try {
-      const res = await axios.post('/api/v1/chat', {
+      const res = await sendChatMessage({
         message: query,
         conversation_id: activeConvId
       });
 
-      if (!activeConvId && res.data.conversation_id) {
-        setActiveConvId(res.data.conversation_id);
+      if (!activeConvId && res.conversation_id) {
+        setActiveConvId(res.conversation_id);
         fetchConversations();
       }
 
       const botMsg = {
         id: Date.now() + 1,
         sender: 'assistant',
-        text: res.data.reply,
-        intent: res.data.intent,
-        confidence: res.data.confidence,
-        routed_to: res.data.routed_to,
-        grounding_status: res.data.grounding_status,
-        type: res.data.type || 'text',
-        payload: res.data.payload,
-        quick_replies: res.data.quick_replies
+        text: res.reply || res.message,
+        type: res.type || 'text',
+        payload: res.payload,
+        ui: res.ui,
+        state: res.state
       };
 
       setMessages(prev => [...prev, botMsg]);
-
-      // Update contextual right drawer if payload contains event details
-      if (res.data.payload && (res.data.payload.id || res.data.payload.event_id)) {
-        setContextEvent(res.data.payload);
-      }
     } catch (err) {
-      console.error("Chat error", err);
+      console.error('Chat error:', err);
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         sender: 'assistant',
-        text: 'I am currently processing requests offline. You can ask me to search events or view booked tickets.',
+        text: "I couldn't complete that request right now. Let me know if you'd like to try again or explore upcoming events.",
         type: 'text'
       }]);
     } finally {
       setLoading(false);
+      setToolStatus(null);
     }
   };
 
   const handlePaymentSuccess = async (ticket) => {
     setLoading(true);
+    setToolStatus('Verifying payment…');
     try {
-      const res = await axios.post('/api/v1/chat', {
+      const res = await sendChatMessage({
         event_type: 'system_event',
         payload: {
           event: 'PAYMENT_VERIFIED',
@@ -166,29 +191,29 @@ export default function ChatMainInterface({ initialEvent, onSelectEventForBookin
       const botMsg = {
         id: Date.now(),
         sender: 'assistant',
-        text: res.data.reply || '🎉 Payment successful! Your ticket has been issued.',
+        text: res.reply || res.message || 'Payment confirmed ✓ Your tickets are ready.',
         type: 'ticket_confirmation',
-        payload: ticket || res.data.payload,
-        quick_replies: res.data.quick_replies
+        payload: ticket || res.payload
       };
       setMessages(prev => [...prev, botMsg]);
     } catch (err) {
-      console.error("Payment system event notice:", err);
+      console.error('Payment notice error:', err);
       setMessages(prev => [...prev, {
         id: Date.now(),
         sender: 'assistant',
-        text: '🎉 Payment successful! Your ticket has been issued.',
+        text: 'Payment confirmed ✓ Your tickets are ready.',
         type: 'ticket_confirmation',
         payload: ticket
       }]);
     } finally {
       setLoading(false);
+      setToolStatus(null);
     }
   };
 
   const handleSpeechInput = () => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      alert("Speech recognition is not supported in this browser.");
+      alert('Speech recognition is not supported in this browser.');
       return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -209,469 +234,361 @@ export default function ChatMainInterface({ initialEvent, onSelectEventForBookin
     recognition.onend = () => setIsListening(false);
   };
 
-  const activeMsgType = messages.length > 0 ? messages[messages.length - 1].type : null;
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const handleTextareaInput = (e) => {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+  };
+
+  const renderMessageCard = (msg) => {
+    // 1. Check structured UI array from backend
+    if (msg.ui && Array.isArray(msg.ui) && msg.ui.length > 0) {
+      return msg.ui.map((component, idx) => {
+        const { type, data } = component;
+        if (type === 'event_carousel' || type === 'event_results') {
+          return <EventCarouselCard key={idx} events={data.events || []} onSelect={sendMessage} />;
+        }
+        if (type === 'booking_summary') {
+          return <BookingSummaryCard key={idx} {...data} onConfirm={sendMessage} onSelect={sendMessage} />;
+        }
+        if (type === 'payment_button') {
+          return <PaymentButton key={idx} {...data} onPaymentSuccess={handlePaymentSuccess} />;
+        }
+        if (type === 'ticket_confirmation') {
+          return <TicketConfirmationCard key={idx} {...data} />;
+        }
+        if (type === 'my_tickets_list') {
+          return <MyTicketsListCard key={idx} tickets={data.tickets || []} onSelect={sendMessage} />;
+        }
+        if (type === 'comparison_card') {
+          return <ComparisonCard key={idx} {...data} onSelect={sendMessage} />;
+        }
+        if (type === 'cancellation_card') {
+          return <CancellationCard key={idx} {...data} onConfirmCancel={sendMessage} />;
+        }
+        return null;
+      });
+    }
+
+    // 2. Backward compatibility fallback
+    if (msg.type === 'event_results' && msg.payload?.events) {
+      return <EventCarouselCard events={msg.payload.events} onSelect={sendMessage} />;
+    }
+    if (msg.type === 'booking_summary' && msg.payload) {
+      return <BookingSummaryCard {...msg.payload} onConfirm={sendMessage} onSelect={sendMessage} />;
+    }
+    if (msg.type === 'payment_button' && msg.payload) {
+      return <PaymentButton {...msg.payload} onPaymentSuccess={handlePaymentSuccess} />;
+    }
+    if (msg.type === 'ticket_confirmation' && msg.payload) {
+      return <TicketConfirmationCard {...msg.payload} />;
+    }
+    if (msg.type === 'my_tickets_list' && msg.payload?.tickets) {
+      return <MyTicketsListCard tickets={msg.payload.tickets} onSelect={sendMessage} />;
+    }
+    if (msg.type === 'comparison_card' && msg.payload) {
+      return <ComparisonCard {...msg.payload} onSelect={sendMessage} />;
+    }
+    if (msg.type === 'cancellation_card' && msg.payload) {
+      return <CancellationCard {...msg.payload} onConfirmCancel={sendMessage} />;
+    }
+
+    return null;
+  };
 
   return (
-    <div style={{
-      display: 'flex',
-      height: 'calc(100vh - 72px)',
-      background: 'var(--bg-dark)',
-      color: '#F8FAFC',
-      overflow: 'hidden'
-    }}>
-      {/* LEFT SIDEBAR: Conversation Session History */}
-      <aside style={{
-        width: '260px',
-        background: 'rgba(15, 23, 42, 0.95)',
-        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '16px 12px'
-      }}>
-        <button
-          onClick={createNewChat}
+    <div style={{ display: 'flex', height: 'calc(100vh - 60px)', background: 'var(--bg-primary)', overflow: 'hidden' }}>
+      {/* 1. Slim Collapsible Sidebar */}
+      {isSidebarOpen && (
+        <aside
           style={{
-            width: '100%',
-            background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
-            border: 'none',
-            color: 'white',
-            padding: '10px 14px',
-            borderRadius: '12px',
-            fontWeight: 700,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
+            width: '260px',
+            background: 'var(--bg-surface)',
+            borderRight: '1px solid var(--border)',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            boxShadow: '0 4px 16px rgba(139, 92, 246, 0.3)',
-            marginBottom: '16px'
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            padding: '16px 12px',
+            flexShrink: 0,
+            transition: 'width 200ms ease',
           }}
         >
-          <Plus size={18} /> New Conversation
-        </button>
-
-        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', padding: '0 8px 8px 8px', letterSpacing: '0.5px' }}>
-          Recent Conversations
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {conversations.length === 0 ? (
-            <div style={{ fontSize: '0.78rem', color: '#64748B', padding: '12px 8px', textAlign: 'center' }}>
-              No past conversations
-            </div>
-          ) : (
-            conversations.map(c => (
-              <div
-                key={c.id}
-                onClick={() => setActiveConvId(c.id)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '10px',
-                  cursor: 'pointer',
-                  background: activeConvId === c.id ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
-                  border: activeConvId === c.id ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid transparent',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                  <MessageSquare size={15} color={activeConvId === c.id ? '#A78BFA' : '#64748B'} />
-                  <span style={{
-                    fontSize: '0.82rem',
-                    color: activeConvId === c.id ? '#F1F5F9' : '#94A3B8',
-                    fontWeight: activeConvId === c.id ? 600 : 400,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}>
-                    {c.title}
-                  </span>
-                </div>
-                <button
-                  onClick={(e) => deleteChat(e, c.id)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#64748B',
-                    cursor: 'pointer',
-                    padding: '2px'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.color = '#EF4444'}
-                  onMouseOut={(e) => e.currentTarget.style.color = '#64748B'}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </aside>
-
-      {/* CENTER: Main Chat Screen */}
-      <main style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'relative',
-        background: 'radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.08) 0%, transparent 60%)'
-      }}>
-        {/* Chat Stream Header */}
-        <div style={{
-          padding: '14px 24px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(10px)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ background: 'linear-gradient(135deg, #8B5CF6, #EC4899)', padding: '8px', borderRadius: '10px' }}>
-              <Bot size={20} color="white" />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'white' }}>
-                🤖 ChatAssist
-              </h3>
-              <span style={{ fontSize: '0.75rem', color: '#10B981', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
-                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10B981' }}></span> Live data
+          {/* New Chat Button */}
+          <div>
+            <button
+              onClick={createNewChat}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-btn)',
+                color: 'var(--text-primary)',
+                padding: '9px 14px',
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+              onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Plus size={16} /> New chat
               </span>
+            </button>
+
+            {/* Conversation History List */}
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 8px 6px' }}>
+              Recent Chats
+            </div>
+
+            <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 220px)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {conversations.map((conv) => {
+                const isActive = conv.id === activeConvId;
+                return (
+                  <div
+                    key={conv.id}
+                    onClick={() => setActiveConvId(conv.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      borderRadius: 'var(--radius-btn)',
+                      background: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontSize: '0.82rem',
+                    }}
+                    onMouseOver={(e) => !isActive && (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                    onMouseOut={(e) => !isActive && (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '170px' }}>
+                      {conv.title || 'Chat'}
+                    </span>
+                    <button
+                      onClick={(e) => deleteChat(e, conv.id)}
+                      title="Delete chat"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                      onMouseOver={(e) => e.currentTarget.style.color = 'var(--danger)'}
+                      onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Stepper Progress Indicator */}
-          {(() => {
-            const lastMsg = (messages && messages.length > 0) ? messages[messages.length - 1] : null;
-            const currentMode = lastMsg?.mode || 'BOOKING';
-            const activeMsgType = lastMsg?.type || null;
+          {/* Bottom Sidebar Footnote */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', paddingLeft: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            ✦ ChatAssist v2.0
+          </div>
+        </aside>
+      )}
 
-            if (currentMode === 'EVENT_CREATION' || activeMsgType === 'event_creation_card') {
-              const creationSteps = [
-                { title: 'Create Event', idx: 1 },
-                { title: 'Details', idx: 2 },
-                { title: 'Tickets', idx: 3 },
-                { title: 'Preview', idx: 4 },
-                { title: 'Publish', idx: 5 }
-              ];
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', fontWeight: 700 }}>
-                  {creationSteps.map((st, i) => (
-                    <React.Fragment key={st.title}>
-                      {i > 0 && <span style={{ color: '#475569' }}>›</span>}
-                      <span style={{ color: i === 0 ? '#10B981' : '#64748B', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontWeight: 800 }}>{i === 0 ? '●' : '○'}</span> {st.title}
-                      </span>
-                    </React.Fragment>
-                  ))}
-                </div>
-              );
-            }
-
-            let activeStep = 0;
-            if (activeMsgType === 'event_card' || activeMsgType === 'event_results') activeStep = 1;
-            else if (activeMsgType === 'booking_summary') activeStep = 3;
-            else if (activeMsgType === 'payment_button') activeStep = 4;
-            else if (activeMsgType === 'ticket_confirmation') activeStep = 5;
-
-            const steps = [
-              { title: 'Event', idx: 1 },
-              { title: 'Tickets', idx: 2 },
-              { title: 'Review', idx: 3 },
-              { title: 'Payment', idx: 4 },
-              { title: 'Confirmed', idx: 5 }
-            ];
-
-            return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', fontWeight: 700 }}>
-                {steps.map((st, i) => {
-                  const isDone = activeStep > st.idx;
-                  const isCurrent = activeStep === st.idx || (activeStep === 0 && st.idx === 1 && messages.length > 0);
-                  const symbol = isDone ? '✓' : isCurrent ? '●' : '○';
-                  const textColor = isDone ? '#10B981' : isCurrent ? '#A78BFA' : '#64748B';
-
-                  return (
-                    <React.Fragment key={st.title}>
-                      {i > 0 && <span style={{ color: '#475569' }}>›</span>}
-                      <span style={{ color: textColor, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontWeight: 800 }}>{symbol}</span> {st.title}
-                      </span>
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-
+      {/* 2. Main Conversation Stream Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', overflow: 'hidden' }}>
         {/* Message Stream */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {messages.length === 0 ? (
-              <WelcomeScreenCard onQuickAction={(promptText) => sendMessage(promptText)} />
-            ) : (
-              messages.map(m => (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px 140px' }}>
+          <div style={{ maxWidth: '768px', margin: '0 auto', width: '100%' }}>
+            {/* Empty State Hero */}
+            {messages.length === 0 && (
+              <EmptyStateHero onQuickAction={sendMessage} />
+            )}
+
+            {/* Message History */}
+            {messages.map((msg, index) => {
+              const isUser = msg.sender === 'user';
+              return (
                 <div
-                  key={m.id}
+                  key={msg.id || index}
                   style={{
                     display: 'flex',
-                    justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start',
-                    marginBottom: '8px'
+                    flexDirection: 'column',
+                    alignItems: isUser ? 'flex-end' : 'flex-start',
+                    marginBottom: '20px',
+                    animation: 'fadeIn 180ms ease-out forwards',
                   }}
                 >
-                  <div style={{
-                    maxWidth: m.sender === 'user' ? '60%' : (m.type && m.type !== 'text' ? '900px' : '75%'),
-                    minWidth: m.type && m.type !== 'text' ? '360px' : 'auto'
-                  }}>
-                    {/* User Bubble */}
-                    {m.sender === 'user' ? (
-                      <div style={{
-                        background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
-                        color: 'white',
-                        padding: '14px 20px',
-                        borderRadius: '20px 20px 4px 20px',
-                        fontSize: '0.95rem',
-                        fontWeight: 500,
-                        boxShadow: '0 4px 14px rgba(139, 92, 246, 0.3)'
-                      }}>
-                        {m.text}
-                      </div>
-                    ) : (
-                      /* Bot Bubble */
-                      <div style={{
-                        background: 'rgba(30, 41, 59, 0.85)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        color: '#F8FAFC',
-                        padding: '20px',
-                        borderRadius: '20px 20px 20px 4px',
-                        backdropFilter: 'blur(10px)',
-                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)'
-                      }}>
-                        {m.text && (
-                          <p style={{ margin: '0 0 10px 0', fontSize: '0.95rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                            {m.text}
-                          </p>
-                        )}
+                  {/* Sender Header */}
+                  {!isUser && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      <span style={{ color: 'var(--accent)' }}>✦</span>
+                      <span>ChatAssist</span>
+                    </div>
+                  )}
 
-                        {/* Render Structured Response Cards */}
-                        {(m.type === 'create_event_entry' || m.type === 'CREATE_EVENT_ACTION') && (
-                          <CreateEventEntryCard {...(m.payload || {})} onStartSetup={(initialData) => onOpenCreateWizard && onOpenCreateWizard(initialData)} />
-                        )}
-
-                        {(m.type === 'event_card' || m.type === 'EVENT_DETAILS') && m.payload && (
-                          <EventCard {...m.payload} onSelect={(t) => sendMessage(t)} />
-                        )}
-
-                        {(m.type === 'event_results' || m.type === 'EVENT_RESULTS') && m.payload?.events && (
-                          <EventCarouselCard events={m.payload.events} onSelectEvent={(t) => sendMessage(t)} />
-                        )}
-
-                        {(m.type === 'booking_summary' || m.type === 'BOOKING_SUMMARY') && m.payload && (
-                          <BookingSummaryCard
-                            {...m.payload}
-                            onConfirm={(t) => sendMessage(t)}
-                            onCancel={(t) => sendMessage(t)}
-                            onSelect={(t) => sendMessage(t)}
-                          />
-                        )}
-
-                        {(m.type === 'payment_button' || m.type === 'PAYMENT_ACTION') && m.payload && (
-                          <PaymentButton
-                            {...m.payload}
-                            onPaymentSuccess={handlePaymentSuccess}
-                          />
-                        )}
-
-                        {(m.type === 'ticket_confirmation' || m.type === 'TICKET_CONFIRMATION') && m.payload && (
-                          <TicketConfirmationCard {...m.payload} />
-                        )}
-
-                        {(m.type === 'my_tickets_list' || m.type === 'MY_TICKETS') && m.payload?.tickets && (
-                          <MyTicketsListCard tickets={m.payload.tickets} />
-                        )}
-
-                        {(m.type === 'cancellation_card' || m.type === 'REFUND_ACTION') && m.payload && (
-                          <CancellationCard {...m.payload} onConfirmCancel={(t) => sendMessage(t)} />
-                        )}
-
-                        <QuickReplyButtons quick_replies={m.quick_replies} onSelect={(t) => sendMessage(t)} />
-                      </div>
-                    )}
+                  {/* Text Content */}
+                  <div
+                    style={{
+                      background: isUser ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                      color: 'var(--text-primary)',
+                      padding: isUser ? '10px 16px' : '2px 0',
+                      borderRadius: isUser ? '18px 18px 4px 18px' : '0',
+                      maxWidth: '85%',
+                      fontSize: '0.94rem',
+                      lineHeight: 1.6,
+                      wordBreak: 'break-word',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {msg.text}
                   </div>
-                </div>
-              ))
-            )}
 
-            {/* Typing Indicator */}
+                  {/* Single Purpose UI Card */}
+                  {!isUser && renderMessageCard(msg)}
+                </div>
+              );
+            })}
+
+            {/* Subtle Thinking & Tool Activity Indicator */}
             {loading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#A78BFA', fontSize: '0.85rem', padding: '8px 12px' }}>
-                <RefreshCw size={16} className="animate-spin" /> ChatAssist is processing...
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.84rem', marginTop: '10px' }}>
+                <span style={{ color: 'var(--accent)', animation: 'pulseSubtle 1.2s infinite' }}>✦</span>
+                <span style={{ fontStyle: 'italic' }}>{toolStatus || 'Thinking…'}</span>
               </div>
             )}
+
             <div ref={messagesEndRef} />
           </div>
         </div>
 
-        {/* Input Bar */}
-        <div style={{
-          padding: '18px 24px',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          background: 'rgba(15, 23, 42, 0.9)',
-          backdropFilter: 'blur(10px)'
-        }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-            {/* Quick Action Pills */}
-            <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '12px' }}>
-              {['Show live events', 'Book VIP passes', '✨ Create an event', 'Show my tickets', 'How does refund work?'].map((pill, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => sendMessage(pill)}
-                  style={{
-                    background: 'rgba(139, 92, 246, 0.12)',
-                    border: '1px solid rgba(139, 92, 246, 0.35)',
-                    color: '#C4B5FD',
-                    padding: '6px 14px',
-                    borderRadius: '16px',
-                    fontSize: '0.82rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    minHeight: '34px'
-                  }}
-                >
-                  {pill}
-                </button>
-              ))}
-            </div>
-
-            <form
-              onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
-            >
-              <button
-                type="button"
-                onClick={handleSpeechInput}
-                style={{
-                  background: isListening ? '#EF4444' : 'rgba(255, 255, 255, 0.08)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: isListening ? 'white' : '#94A3B8',
-                  padding: '12px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '48px',
-                  minWidth: '48px'
-                }}
-                title="Voice Input"
-              >
-                <Mic size={20} />
-              </button>
-
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask ChatAssist to search events, book tickets, or show passes..."
-                style={{
-                  flex: 1,
-                  background: 'rgba(30, 41, 59, 0.8)',
-                  border: '1px solid rgba(139, 92, 246, 0.3)',
-                  minHeight: '48px',
-                  padding: '12px 18px',
-                  fontSize: '0.95rem',
-                  borderRadius: '12px',
-                  color: 'white',
-                  outline: 'none'
-                }}
-              />
-
-              <button
-                type="submit"
-                disabled={!input.trim() || loading}
-                style={{
-                  background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
-                  border: 'none',
-                  color: 'white',
-                  padding: '12px 20px',
-                  borderRadius: '12px',
-                  fontWeight: 700,
-                  fontSize: '0.95rem',
-                  minHeight: '48px',
-                  cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  opacity: input.trim() && !loading ? 1 : 0.5
-                }}
-              >
-                <Send size={16} /> Send
-              </button>
-
-            </form>
-          </div>
-        </div>
-      </main>
-
-
-      {/* RIGHT PANEL: Contextual Active Event / Ticket Preview Panel (Desktop) */}
-      {contextEvent && (
-        <aside style={{
-          width: '300px',
-          background: 'rgba(15, 23, 42, 0.95)',
-          borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
-          padding: '20px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '14px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: '#A78BFA' }}>
-              Active Context
-            </h4>
+        {/* 3. Universal Centered Floating Bottom Composer */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            background: 'linear-gradient(to top, var(--bg-primary) 70%, transparent)',
+            padding: '20px 20px 24px',
+            display: 'flex',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              maxWidth: '768px',
+              width: '100%',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-composer)',
+              padding: '6px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+              transition: 'border-color 150ms ease',
+            }}
+            onFocus={() => {}}
+          >
+            {/* Attachment Button */}
             <button
-              onClick={() => setContextEvent(null)}
-              style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer' }}
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <div style={{ background: 'rgba(30, 41, 59, 0.6)', padding: '14px', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 8px 0', color: 'white' }}>
-              {contextEvent.event_title || contextEvent.title || 'Selected Event'}
-            </h3>
-            <div style={{ fontSize: '0.78rem', color: '#94A3B8', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <span>📍 {contextEvent.location || 'Bengaluru'}</span>
-              <span>📅 {contextEvent.date_str || 'Upcoming'}</span>
-              {contextEvent.price && <span>💰 Standard Pass: ₹{contextEvent.price}</span>}
-              {contextEvent.available_tickets && <span>🎟️ {contextEvent.available_tickets} seats remaining</span>}
-            </div>
-
-            <button
-              onClick={() => sendMessage(`Book tickets for ${contextEvent.event_title || contextEvent.title}`)}
+              title="Add attachment"
               style={{
-                width: '100%',
-                marginTop: '14px',
-                background: 'linear-gradient(135deg, #10B981, #059669)',
+                background: 'transparent',
                 border: 'none',
-                color: 'white',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '6px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+              onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+            >
+              <Plus size={18} />
+            </button>
+
+            {/* Natural Textarea Composer */}
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={input}
+              onChange={handleTextareaInput}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask ChatAssist anything about events, tickets, or bookings..."
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '0.94rem',
+                resize: 'none',
+                padding: '8px 4px',
+                maxHeight: '120px',
+                lineHeight: 1.4,
+              }}
+            />
+
+            {/* Voice Input Mic */}
+            <button
+              onClick={handleSpeechInput}
+              title={isListening ? 'Listening...' : 'Use voice input'}
+              style={{
+                background: isListening ? 'var(--danger-soft)' : 'transparent',
+                border: 'none',
+                color: isListening ? 'var(--danger)' : 'var(--text-muted)',
+                cursor: 'pointer',
                 padding: '8px',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer'
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onMouseOver={(e) => !isListening && (e.currentTarget.style.color = 'var(--text-primary)')}
+              onMouseOut={(e) => !isListening && (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              <Mic size={18} />
+            </button>
+
+            {/* Circular Send Button */}
+            <button
+              onClick={() => sendMessage()}
+              disabled={!input.trim() || loading}
+              style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                background: input.trim() && !loading ? 'var(--text-primary)' : 'rgba(255,255,255,0.08)',
+                color: input.trim() && !loading ? '#111111' : 'var(--text-muted)',
+                border: 'none',
+                cursor: input.trim() && !loading ? 'pointer' : 'default',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 150ms ease',
               }}
             >
-              Book This Event Now
+              <ArrowUp size={18} />
             </button>
           </div>
-        </aside>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
-
